@@ -1,6 +1,16 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "VulkanRenderer.h"
 
+void VulkanRenderer::init(GLFWwindow* w) {
+	window = w;
+	initWindow();
+	initVulkan();
+}
+
+void VulkanRenderer::update() {
+	drawFrame();
+}
+
 void VulkanRenderer::run() {
 		initWindow();
 		initVulkan();
@@ -8,16 +18,11 @@ void VulkanRenderer::run() {
 		cleanup();
 }
 
-void VulkanRenderer::setCamera() {
+void VulkanRenderer::setCamera(Camera camera) {
 
 }
 
 void VulkanRenderer::initWindow() {
-	glfwInit();
-
-	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-
-	window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 	glfwSetWindowUserPointer(window, this);
 	glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 }
@@ -1254,8 +1259,6 @@ void VulkanRenderer::mainLoop() {
 		glfwPollEvents();
 		drawFrame();
 	}
-
-	vkDeviceWaitIdle(device);
 }
 
 void VulkanRenderer::drawFrame() {
@@ -1324,6 +1327,8 @@ void VulkanRenderer::drawFrame() {
 }
 
 void VulkanRenderer::cleanup() {
+	vkDeviceWaitIdle(device);
+
 	cleanupSwapChain();
 
 	vkDestroySampler(device, textureSampler, nullptr);
@@ -1368,10 +1373,6 @@ void VulkanRenderer::cleanup() {
 
 	vkDestroySurfaceKHR(instance, surface, nullptr);
 	vkDestroyInstance(instance, nullptr);
-
-	glfwDestroyWindow(window);
-
-	glfwTerminate();
 }
 
 void VulkanRenderer::recreateSwapChain() {

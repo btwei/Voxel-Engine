@@ -123,8 +123,13 @@ const std::vector<uint16_t> indices = {
 
 class VulkanRenderer {
 public:
-	void run();
+	void init(GLFWwindow* window);
+	void cleanup();
+	void update();
+	void drawFrame();
+
 	void setCamera(Camera camera);
+	void run();
 private:
 	GLFWwindow* window;
 	VkInstance instance;
@@ -187,9 +192,6 @@ private:
 	void initWindow();
 	void initVulkan();
 	void mainLoop();
-	void cleanup();
-
-	void drawFrame();
 	void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 
 	void createInstance();
