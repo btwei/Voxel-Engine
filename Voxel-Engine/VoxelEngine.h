@@ -1,7 +1,9 @@
 #pragma once
 #include "WindowHandler.h"
 #include "VulkanRenderer.h"
+#include "ChunkHandler.h"
 #include "Camera.h"
+#include "VertexTypes.h"
 
 class VoxelEngine {
 public:
@@ -9,10 +11,11 @@ public:
 	void placeVoxel();
 	void run();
 private:
-	WindowHandler windowHandler;
+	//WindowHandler windowHandler;
 	VulkanRenderer vulkanRenderer;
-	GLFWwindow* window;
-	Camera camera;
+	//ChunkHandler chunkHandler;
+	GLFWwindow* window;   
+	//Camera defaultCamera;
 
 	void init();
 	void update();

@@ -1,9 +1,7 @@
 #include "VoxelEngine.h"
 
 void VoxelEngine::registerEvent(std::string event, void* callback) {
-	//onTick
-	//onStartup
-	//onCleanup
+
 }
 
 void VoxelEngine::placeVoxel() {
@@ -13,18 +11,43 @@ void VoxelEngine::placeVoxel() {
 void VoxelEngine::run() {
 	init();
 	mainLoop();
-	//vulkanRenderer.run();
 	cleanup();
 }
 
 void VoxelEngine::init() {
-	window = windowHandler.init();
-	vulkanRenderer.init(window);
+	//window = windowHandler.init();
+	//vulkanRenderer.initWindow(window);
+	//vulkanRenderer.setCamera(&defaultCamera);
+	//chunkHandler.init(&vulkanRenderer);
+
+	std::vector<Vertex> newVertices = {
+	    Vertex({0.5f, -0.5f, 1.0f}, {0.5f, 1.0f, 0.0f}, {1.0f, 0.0f}),
+		Vertex({-0.5f, -0.5f, 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}),
+		Vertex({0.5f, 0.5f, 1.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}),
+		Vertex({-0.5f, 0.5f, 1.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}),
+		Vertex({-0.75f, 0.75f, 1.0f}, {0.5f, 0.5f, 0.0f}, {1.0f, 1.0f}),
+		Vertex({0.5f, -0.5f, 1.0f}, {0.5f, 1.0f, 0.0f}, {1.0f, 0.0f}),
+		Vertex({-0.5f, -0.5f, 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}),
+		Vertex({0.5f, 0.5f, 1.0f}, {1.0f, 0.0f, 0.0f}, {1.0f, 1.0f}),
+		Vertex({-0.5f, 0.5f, 1.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}),
+		Vertex({-0.75f, 0.75f, 1.0f}, {0.5f, 0.5f, 0.0f}, {1.0f, 1.0f})
+	};
+
+	vulkanRenderer.setStagingBuffer(newVertices,{
+	0, 1, 2,
+	2, 1, 3,
+	2, 3, 4
+		});
+
+	vulkanRenderer.initVulkan();
 }
 
 void VoxelEngine::update() {
+	//Game State updates first
 	//camera.update();
-	//vulkanRenderer.drawFrame();
+
+	//Render updates second
+	vulkanRenderer.update();
 }
 
 void VoxelEngine::mainLoop() {
@@ -37,5 +60,5 @@ void VoxelEngine::mainLoop() {
 
 void VoxelEngine::cleanup() {
 	vulkanRenderer.cleanup();
-	windowHandler.cleanup();
+	//windowHandler.cleanup();
 }

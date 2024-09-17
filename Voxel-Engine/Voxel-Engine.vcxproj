@@ -136,6 +136,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Camera.cpp" />
+    <ClCompile Include="ChunkHandler.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Player.cpp" />
     <ClCompile Include="VoxelEngine.cpp" />
@@ -144,8 +145,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Camera.h" />
+    <ClInclude Include="ChunkHandler.h" />
     <ClInclude Include="Config.h" />
     <ClInclude Include="Player.h" />
+    <ClInclude Include="VertexTypes.h" />
     <ClInclude Include="VoxelEngine.h" />
     <ClInclude Include="VulkanRenderer.h" />
     <ClInclude Include="WindowHandler.h" />

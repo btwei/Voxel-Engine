@@ -1,6 +1,7 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 class Camera {
 public:
@@ -11,6 +12,10 @@ public:
 	glm::mat4 m_view;
 
 	void update();
+
+	float fovy;
+	float near;
+	float far;
 
 private:
 	glm::vec3 position;

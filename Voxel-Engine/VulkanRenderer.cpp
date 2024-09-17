@@ -1,28 +1,43 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "VulkanRenderer.h"
 
-void VulkanRenderer::init(GLFWwindow* w) {
-	window = w;
-	initWindow();
-	initVulkan();
-}
-
 void VulkanRenderer::update() {
-	drawFrame();
+	
 }
 
 void VulkanRenderer::run() {
+	/*
 		initWindow();
 		initVulkan();
 		mainLoop();
-		cleanup();
+		cleanup(); */
 }
 
-void VulkanRenderer::setCamera(Camera camera) {
+void VulkanRenderer::setCamera(Camera* c) {
+	camera = c;
+}
+
+void VulkanRenderer::setStagingBuffer(std::vector<Vertex> v, std::vector<uint16_t> i) {
+	vertices = v;
+	indices = i;
+}
+
+void VulkanRenderer::setUniform() {
 
 }
 
-void VulkanRenderer::initWindow() {
+/*
+void VulkanRenderer::loadVertices() {
+
+}
+
+void VulkanRenderer::loadIndices() {
+
+}
+*/
+
+void VulkanRenderer::initWindow(GLFWwindow* w) {
+	window = w;
 	glfwSetWindowUserPointer(window, this);
 	glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 }
@@ -1416,10 +1431,17 @@ void VulkanRenderer::updateUniformBuffer(uint32_t currentImage) {
 	float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
 	UniformBufferObject ubo{};
-	ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-	ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-	ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
-	ubo.proj[1][1] *= -1;
+	if (camera != nullptr) {
+		ubo.model = glm::mat4(1.0f);
+		ubo.view = camera->m_view;
+		ubo.proj = glm::perspective(glm::radians(camera->fovy), swapChainExtent.width / (float)swapChainExtent.height, camera->near, camera->far);
+		ubo.proj[1][1] *= -1;
+	} else {
+		ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		ubo.view = glm::lookAt(glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
+		ubo.proj[1][1] *= -1;
+	}
 
 	memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 }
