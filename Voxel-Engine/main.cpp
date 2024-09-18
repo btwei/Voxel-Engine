@@ -14,6 +14,7 @@
 #include <fstream>
 #include <glm/glm.hpp>
 #include <array>
+#include <unordered_map>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -24,6 +25,10 @@
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
+
+#define CHUNK_SIZE 32
+#define CHUNK_AREA CHUNK_SIZE*CHUNK_SIZE
+#define CHUNK_VOL CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -119,7 +124,7 @@ struct UniformBufferObject {
 	glm::mat4 proj;
 };
 
-const std::vector<Vertex> vertices = {
+std::vector<Vertex> vertices = {
 	{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
 	{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
 	{{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
@@ -131,15 +136,34 @@ const std::vector<Vertex> vertices = {
 	{{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
 };
 
-const std::vector<uint16_t> indices = {
+std::vector<uint16_t> indices = {
 	0, 1, 2, 2, 3, 0,
 	4, 5, 6, 6, 7, 4
 };
+
+struct Voxel {
+	bool isActive = false;
+	short blockType = 0;
+};
+
+struct Array3Hash {
+	std::size_t operator()(const std::array<int, 3>& arr) const {
+		std::size_t hash = 17;
+		hash = hash * 31 + std::hash<int>()(arr[0]);
+		hash = hash * 31 + std::hash<int>()(arr[1]);
+		hash = hash * 31 + std::hash<int>()(arr[2]);
+		return hash;
+	}
+};
+
+std::unordered_map<std::array<int, 3>, std::array<Voxel, CHUNK_VOL>, Array3Hash> chunks;
 
 class VoxelEngine{
 public:
 	void run(){
 		initWindow();
+		initGeometry();
+		initScene();
 		initVulkan();
 		mainLoop();
 		cleanup();
@@ -1183,8 +1207,8 @@ private:
 	void createTextureSampler() {
 		VkSamplerCreateInfo samplerInfo{};
 		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-		samplerInfo.magFilter = VK_FILTER_LINEAR;
-		samplerInfo.minFilter = VK_FILTER_LINEAR;
+		samplerInfo.magFilter = VK_FILTER_NEAREST;
+		samplerInfo.minFilter = VK_FILTER_NEAREST;
 		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -1603,12 +1627,66 @@ private:
 		float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
 		UniformBufferObject ubo{};
-		ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-		ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 10.0f);
+		ubo.model = glm::mat4(1.0f);//glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+		ubo.view = glm::lookAt(glm::vec3(100.0f, 100.0f, 100.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 1000.0f);
 		ubo.proj[1][1] *= -1;
 
 		memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+	}
+
+	void initGeometry() {
+		std::array<Voxel, CHUNK_VOL> testChunk{};
+
+		for (size_t i = 0; i < CHUNK_VOL; i++) {
+			testChunk[i] = Voxel(true,1);
+		}
+
+		chunks[std::array<int, 3>{0, 0, 0}] = testChunk;
+	}
+
+	void initScene() {
+
+		vertices.clear();
+		indices.clear();
+
+		for (const auto& [coords, chunk] : chunks) {
+			uint16_t idx = 0;
+			for (size_t i = 0; i < CHUNK_VOL; i++) {
+				//Naive draw every face, to be changed!
+				if (chunk[i].isActive == true) {
+					float x = i / (CHUNK_AREA);
+					float y = (i / CHUNK_SIZE) % CHUNK_SIZE;
+					float z = i % CHUNK_SIZE;
+
+					vertices.push_back({{x, y, z},                   {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f}});
+					vertices.push_back({{x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}});
+					vertices.push_back({{x, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}});
+					vertices.push_back({{x, y, z + 1.0f},            {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
+					vertices.push_back({{x, y + 1.0f, z + 1.0f},     {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f} });
+					vertices.push_back({{x + 1.0f, y + 1.0f, z},     {1.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
+					vertices.push_back({{x + 1.0f, y, z + 1.0f},     {1.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
+					vertices.push_back({{x + 1.0f, y + 1.0f, z + 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f} });
+
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx+1), static_cast<uint16_t>(idx + 6) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx+6), static_cast<uint16_t>(idx+3)});
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx+2), static_cast<uint16_t>(idx+5)});
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx+5), static_cast<uint16_t>(idx+1) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx+1), static_cast<uint16_t>(idx+5), static_cast<uint16_t>(idx + 7) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx+1), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 6) });
+
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 2) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 4) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 4) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 6), static_cast<uint16_t>(idx + 7) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 5), static_cast<uint16_t>(idx + 2) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 5) });
+
+					idx += 8;
+				}
+			}
+		}
+
 	}
 
 };
