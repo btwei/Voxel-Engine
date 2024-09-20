@@ -26,9 +26,14 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+#define VMA_IMPLEMENTATION
+#include "vk_mem_alloc.h"
+
 #define CHUNK_SIZE 32
 #define CHUNK_AREA CHUNK_SIZE*CHUNK_SIZE
 #define CHUNK_VOL CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE
+
+#define VIEW_DISTANCE 2
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -197,6 +202,7 @@ private:
 	VkDeviceMemory vertexBufferMemory;
 	VkBuffer indexBuffer;
 	VkDeviceMemory indexBufferMemory;
+	VkDeviceMemory chunkMemory;
 	VkDescriptorPool descriptorPool;
 	std::vector<VkDescriptorSet> descriptorSets;
 	VkImage textureImage;
@@ -245,8 +251,10 @@ private:
 		createTextureImage();
 		createTextureImageView();
 		createTextureSampler();
+
 		createVertexBuffer();
 		createIndexBuffer();
+
 		createUniformBuffers();
 		createDescriptorPool();
 		createDescriptorSets();
@@ -1276,6 +1284,40 @@ private:
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
 	}
 
+	void createVertexAndIndexBuffers() {
+		/*
+		//Create general memory pool based on VIEW_DISTANCE
+
+		//Get size requirement for VkDeviceMemory to hold all chunk data
+		VkDeviceSize memorySize = (sizeof(Vertex) * 24 + sizeof(indices[0]) * 108) * (CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE/8) * (VIEW_DISTANCE*VIEW_DISTANCE*VIEW_DISTANCE);
+		
+		VkBufferCreateInfo bufferInfo{};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = size;
+		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create buffer!");
+		}
+
+		VkMemoryRequirements memRequirements;
+		vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
+
+		VkMemoryAllocateInfo allocInfo{};
+		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		allocInfo.allocationSize = ;
+		allocInfo.memoryTypeIndex = ;
+
+		if (vkAllocateMemory(device, &allocInfo, nullptr, &chunkMemory) != VK_SUCCESS) {
+			throw std::runtime_error("failed to allocate chunk memory!");
+		}
+
+		//Create individual chunk buffers, allocating from the previous pool
+
+		*/
+	}
+
 	void createUniformBuffers() {
 		VkDeviceSize bufferSize = sizeof(UniformBufferObject);
 
@@ -1628,8 +1670,8 @@ private:
 
 		UniformBufferObject ubo{};
 		ubo.model = glm::mat4(1.0f);//glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-		ubo.view = glm::lookAt(glm::vec3(100.0f, 100.0f, 100.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
-		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 1000.0f);
+		ubo.view = glm::lookAt(glm::vec3(-10.0f, -10.0f, -10.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 1500.0f);
 		ubo.proj[1][1] *= -1;
 
 		memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
@@ -1639,7 +1681,10 @@ private:
 		std::array<Voxel, CHUNK_VOL> testChunk{};
 
 		for (size_t i = 0; i < CHUNK_VOL; i++) {
-			testChunk[i] = Voxel(true,1);
+			int x = i / (CHUNK_SIZE * CHUNK_SIZE);
+			int y = (i / CHUNK_SIZE) % CHUNK_SIZE;
+			int z = i % CHUNK_SIZE;
+			if(x % 4 == 0 && y % 4 == 0 && z % 4 == 0) testChunk[i] = Voxel(true,1);
 		}
 
 		chunks[std::array<int, 3>{0, 0, 0}] = testChunk;
@@ -1655,7 +1700,7 @@ private:
 			for (size_t i = 0; i < CHUNK_VOL; i++) {
 				//Naive draw every face, to be changed!
 				if (chunk[i].isActive == true) {
-					float x = i / (CHUNK_AREA);
+					float x = i / (CHUNK_SIZE*CHUNK_SIZE);
 					float y = (i / CHUNK_SIZE) % CHUNK_SIZE;
 					float z = i % CHUNK_SIZE;
 
@@ -1687,6 +1732,11 @@ private:
 			}
 		}
 
+	}
+
+	void loadChunk() {
+		//Given coords, chunk data, and buffer; use staging buffer to load chunk into memory
+		//should be done once per chunk in init, then as needed during the update
 	}
 
 };
