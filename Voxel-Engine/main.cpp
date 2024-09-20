@@ -163,7 +163,8 @@ struct Array3Hash {
 	}
 };
 
-std::unordered_map<std::array<int, 3>, std::array<Voxel, CHUNK_VOL>, Array3Hash> chunks;
+//pointer to std::array<Voxel, CHUNK_VOL>
+std::unordered_map<std::array<int, 3>, Voxel*, Array3Hash> chunks;
 
 struct ChunkResources {
 	VkBuffer vertexBuffer;
@@ -1406,14 +1407,88 @@ private:
 			return;
 		}
 
-		uint16_t idx = 0;
-		for (size_t i = 0; i < CHUNK_VOL; i++) {
-			//Naive draw every face, to be changed!
-			if (chunks[coords][i].isActive == true) {
-				float x = i / (CHUNK_SIZE * CHUNK_SIZE);
-				float y = (i / CHUNK_SIZE) % CHUNK_SIZE;
-				float z = i % CHUNK_SIZE;
+		uint16_t idx = 0; //Index for new vertices
+		
+		//Possibly in the future I could unify my faces, which reduces the vertex count, but this is not usually possible if the block types are different, so additional logic is necessary
+		//std::unordered_map<std::array<int, 3>, uint16_t, Array3Hash> vert_idx_map;
 
+		for (size_t i = 0; i < CHUNK_VOL; i++) {
+			if (chunks[coords][i].isActive == true) {
+				int x = i / (CHUNK_SIZE * CHUNK_SIZE);
+				int y = (i / CHUNK_SIZE) % CHUNK_SIZE;
+				int z = i % CHUNK_SIZE;
+
+				//Check neighboring voxels for isActive, minding edge cases
+				//3 cases to draw top face: above voxel is empty, above chunk is empty, above voxel in above chunk is empty
+				//+y face (top)
+				if (y == 0 && !chunks.contains(std::array<int, 3>{coords[0], coords[1]-1, coords[2]}) || y == 0 && chunks[std::array<int, 3>{coords[0], coords[1] - 1, coords[2]}][voxelCoordToI(x,CHUNK_SIZE-1,z)].isActive == false || chunks[coords][voxelCoordToI(x, y-1, z)].isActive == false) {
+					vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f} });
+					vertices.push_back({ {x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f} });
+					vertices.push_back({ {x, y, z + 1.0f},            {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
+					vertices.push_back({ {x + 1.0f, y, z + 1.0f},     {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 2) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 2), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 3) });
+					idx += 4;
+				}
+
+				//repeat for -y face
+				if (y == CHUNK_SIZE-1 && !chunks.contains(std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}) || y == CHUNK_SIZE-1 && chunks[std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}][voxelCoordToI(x, 0, z)].isActive == false || chunks[coords][voxelCoordToI(x, y + 1, z)].isActive == false) {
+					vertices.push_back({ {x, y + 1.0f, z},                   {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f} });
+					vertices.push_back({ {x + 1.0f, y + 1.0f, z + 1.0f},     {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
+					vertices.push_back({ {x + 1.0f, y + 1.0f, z},            {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f} });
+					vertices.push_back({ {x, y + 1.0f, z + 1.0f},            {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 2) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 0), static_cast<uint16_t>(idx + 3) });
+					idx += 4;
+				}
+
+				//repeat for +x face
+				if (x == CHUNK_SIZE-1 && !chunks.contains(std::array<int, 3>{coords[0] + 1, coords[1], coords[2]}) || x == CHUNK_SIZE - 1 && chunks[std::array<int, 3>{coords[0] + 1, coords[1], coords[2]}][voxelCoordToI(0, y, z)].isActive == false || chunks[coords][voxelCoordToI(x + 1, y, z)].isActive == false) {
+					vertices.push_back({ {x + 1.0f, y, z + 1.0f},            {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f} });
+					vertices.push_back({ {x + 1.0f, y, z},                   {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f} });
+					vertices.push_back({ {x + 1.0f, y + 1.0f, z + 1.0f},     {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
+					vertices.push_back({ {x + 1.0f, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 2) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 2), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 3) });
+					idx += 4;
+				}
+
+				//repeat for -x face
+				if (x == 0 && !chunks.contains(std::array<int, 3>{coords[0] - 1, coords[1], coords[2]}) || x == 0 && chunks[std::array<int, 3>{coords[0] - 1, coords[1], coords[2]}][voxelCoordToI(CHUNK_SIZE-1, y, z)].isActive == false || chunks[coords][voxelCoordToI(x - 1, y, z)].isActive == false) {
+					vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f} });
+					vertices.push_back({ {x, y, z + 1.0f},            {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f} });
+					vertices.push_back({ {x, y + 1.0f, z},            {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
+					vertices.push_back({ {x, y + 1.0f, z + 1.0f},     {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 2) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 2), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 3) });
+					idx += 4;
+				}
+
+				//repeat for +z face
+				if (z == CHUNK_SIZE - 1 && !chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] + 1}) || z == CHUNK_SIZE - 1 && chunks[std::array<int, 3>{coords[0], coords[1], coords[2] + 1}][voxelCoordToI(x, y, 0)].isActive == false || chunks[coords][voxelCoordToI(x, y, z + 1)].isActive == false) {
+					vertices.push_back({{x, y + 1.0f, z + 1.0f},            {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f} });
+					vertices.push_back({{x, y, z + 1.0f},                   {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f} });
+					vertices.push_back({{x + 1.0f, y + 1.0f, z + 1.0f},     {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
+					vertices.push_back({{x + 1.0f, y, z + 1.0f},            {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 2) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 2), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 3) });
+					idx += 4;
+				}
+
+				//repeat for -z face
+				if (z == 0 && !chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] - 1}) || z == 0 && chunks[std::array<int, 3>{coords[0], coords[1], coords[2] - 1}][voxelCoordToI(x, y, CHUNK_SIZE-1)].isActive == false || chunks[coords][voxelCoordToI(x, y, z - 1)].isActive == false) {
+					vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f} });
+					vertices.push_back({ {x, y + 1.0f, z},            {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f} });
+					vertices.push_back({ {x + 1.0f, y, z},            {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
+					vertices.push_back({ {x + 1.0f, y + 1.0f, z},     {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 2) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 2), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 3) });
+					idx += 4;
+				}
+
+				/*
+				* 
+				* Old Implementation, doesn't check for empty faces
 				vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f} });
 				vertices.push_back({ {x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f} });
 				vertices.push_back({ {x, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
@@ -1436,10 +1511,13 @@ private:
 				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 6), static_cast<uint16_t>(idx + 7) });
 				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 5), static_cast<uint16_t>(idx + 2) });
 				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 5) });
-
-				idx += 8;
+				*/
 			}
 		}
+	}
+
+	size_t voxelCoordToI(int x, int y, int z) {
+		return (x * CHUNK_SIZE * CHUNK_SIZE) + (y * CHUNK_SIZE) + z;
 	}
 
 	void createUniformBuffers() {
@@ -1765,6 +1843,10 @@ private:
  		glfwDestroyWindow(window);
 
 		glfwTerminate();
+
+		for (auto& chunk : chunks) {
+			delete[] chunk.second;
+		}
 	}
 
 	void recreateSwapChain() {
@@ -1818,21 +1900,27 @@ private:
 
 	void initGeometry() {
 		//init World geometry, set initial camera pos, set inital loaded chunks
-		//TODO: change my chunks map to map to pointers and allocate chunks on the heap
-		std::array<Voxel, CHUNK_VOL> testChunk{};
+		//Consider creating a helper function for writing to chunks (takes a function input perhaps)
 
+		//write and load to 0,0,0
+		chunks[std::array<int, 3>{0, 0, 0}] = new Voxel[CHUNK_VOL];
 		for (size_t i = 0; i < CHUNK_VOL; i++) {
 			int x = i / (CHUNK_SIZE * CHUNK_SIZE);
 			int y = (i / CHUNK_SIZE) % CHUNK_SIZE;
 			int z = i % CHUNK_SIZE;
-			if(x % 4 == 0 && y % 4 == 0 && z % 4 == 0) testChunk[i] = Voxel(true,1);
+			if (z == 0) chunks[std::array<int, 3>{0, 0, 0}][i] = Voxel(true, 1);
 		}
-
-		chunks[std::array<int, 3>{0, 0, 0}] = testChunk;
-		chunks[std::array<int, 3>{0, -1, -1}] = testChunk;
-
 		loadedChunks[std::array<int, 3>{0, 0, 0}] = {};
-		loadedChunks[std::array<int, 3>{0, -1, -1}] = {};
+
+		//write and load to -1,0,-1
+		chunks[std::array<int, 3>{-1, 0, 0}] = new Voxel[CHUNK_VOL];
+		for (size_t i = 0; i < CHUNK_VOL; i++) {
+			int x = i / (CHUNK_SIZE * CHUNK_SIZE);
+			int y = (i / CHUNK_SIZE) % CHUNK_SIZE;
+			int z = i % CHUNK_SIZE;
+			if (y == 0) chunks[std::array<int, 3>{-1, 0, 0}][i] = Voxel(true, 1);
+		}
+		loadedChunks[std::array<int, 3>{-1, 0, 0}] = {};
 	}
 
 	void loadChunk() {
