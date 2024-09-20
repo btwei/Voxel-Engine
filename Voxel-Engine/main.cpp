@@ -129,6 +129,7 @@ struct UniformBufferObject {
 	glm::mat4 proj;
 };
 
+/*
 std::vector<Vertex> vertices = {
 	{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
 	{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
@@ -145,6 +146,7 @@ std::vector<uint16_t> indices = {
 	0, 1, 2, 2, 3, 0,
 	4, 5, 6, 6, 7, 4
 };
+*/
 
 struct Voxel {
 	bool isActive = false;
@@ -163,12 +165,21 @@ struct Array3Hash {
 
 std::unordered_map<std::array<int, 3>, std::array<Voxel, CHUNK_VOL>, Array3Hash> chunks;
 
+struct ChunkResources {
+	VkBuffer vertexBuffer;
+	VkBuffer indexBuffer;
+	VmaAllocation vertexAllocation;
+	VmaAllocation indexAllocation;
+	//Perhaps I could cache the model matrix here too? (Or I could easily calculate it from pos)
+};
+
+std::unordered_map<std::array<int, 3>, ChunkResources, Array3Hash> loadedChunks;
+
 class VoxelEngine{
 public:
 	void run(){
 		initWindow();
 		initGeometry();
-		initScene();
 		initVulkan();
 		mainLoop();
 		cleanup();
@@ -198,10 +209,10 @@ private:
 	std::vector<VkSemaphore> imageAvailableSemaphores;
 	std::vector<VkSemaphore> renderFinishedSemaphores;
 	std::vector<VkFence> inFlightFences;
-	VkBuffer vertexBuffer;
-	VkDeviceMemory vertexBufferMemory;
-	VkBuffer indexBuffer;
-	VkDeviceMemory indexBufferMemory;
+	//VkBuffer vertexBuffer;
+	//VkDeviceMemory vertexBufferMemory;
+	//VkBuffer indexBuffer;
+	//VkDeviceMemory indexBufferMemory;
 	VkDeviceMemory chunkMemory;
 	VkDescriptorPool descriptorPool;
 	std::vector<VkDescriptorSet> descriptorSets;
@@ -215,6 +226,8 @@ private:
 	std::vector<VkBuffer> uniformBuffers;
 	std::vector<VkDeviceMemory> uniformBuffersMemory;
 	std::vector<void*> uniformBuffersMapped;
+
+	VmaAllocator allocator;
 
 	bool framebufferResized = false;
 	uint32_t currentFrame = 0;
@@ -252,8 +265,9 @@ private:
 		createTextureImageView();
 		createTextureSampler();
 
-		createVertexBuffer();
-		createIndexBuffer();
+		//createVertexBuffer();
+		//createIndexBuffer();
+		createVertexAndIndexBuffers();
 
 		createUniformBuffers();
 		createDescriptorPool();
@@ -1240,6 +1254,8 @@ private:
 		}
 	}
 
+	/*
+	* // To be removed
 	void createVertexBuffer() {
 		VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
 
@@ -1283,39 +1299,139 @@ private:
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
 		vkFreeMemory(device, stagingBufferMemory, nullptr);
 	}
+	*/
 
 	void createVertexAndIndexBuffers() {
-		/*
-		//Create general memory pool based on VIEW_DISTANCE
+		//Initialize VMA
 
-		//Get size requirement for VkDeviceMemory to hold all chunk data
-		VkDeviceSize memorySize = (sizeof(Vertex) * 24 + sizeof(indices[0]) * 108) * (CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE/8) * (VIEW_DISTANCE*VIEW_DISTANCE*VIEW_DISTANCE);
-		
-		VkBufferCreateInfo bufferInfo{};
-		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferInfo.size = size;
-		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		VmaAllocatorCreateInfo allocatorCreateInfo{};
+		allocatorCreateInfo.device = device;
+		allocatorCreateInfo.instance = instance;
+		allocatorCreateInfo.physicalDevice = physicalDevice;
+		allocatorCreateInfo.vulkanApiVersion = VK_API_VERSION_1_3;
 
-		if (vkCreateBuffer(device, &bufferInfo, nullptr, &buffer) != VK_SUCCESS) {
-			throw std::runtime_error("failed to create buffer!");
+		vmaCreateAllocator(&allocatorCreateInfo, &allocator);
+
+		//Allocate a buffer for each loadedChunk
+		//Load each buffer with vertex or index data
+
+		for (auto& [coords, chunkBuffers] : loadedChunks) {
+			//Generate vertex and index data from voxel data
+			std::vector<Vertex> chunkVertices{};
+			std::vector<uint16_t> chunkIndices{};
+			constructChunk(coords, chunkVertices, chunkIndices);
+
+			//Skip empty chunks
+			if (chunkVertices.size() == 0 || chunkIndices.size() == 0) continue;
+
+			VkDeviceSize chunkVerticesSize = sizeof(chunkVertices[0]) * chunkVertices.size();
+			VkDeviceSize chunkIndicesSize = sizeof(chunkIndices[0]) * chunkIndices.size();
+
+			//Use a staging buffer to send vertex data to GPU
+			VmaAllocationCreateInfo stagingAllocInfo{};
+			stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+			VkBufferCreateInfo stagingBufferInfo{};
+			stagingBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+			stagingBufferInfo.size = chunkVerticesSize;
+			stagingBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+			stagingBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+			VkBuffer stagingBuffer;
+			VmaAllocation stagingAllocation;
+			vmaCreateBuffer(allocator, &stagingBufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, nullptr);
+
+			void* data;
+			vmaMapMemory(allocator, stagingAllocation, &data);
+			memcpy(data, chunkVertices.data(), (size_t)chunkVerticesSize);
+			vmaUnmapMemory(allocator, stagingAllocation);
+
+			VmaAllocationCreateInfo deviceAllocInfo = {};
+			deviceAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+			VkBufferCreateInfo deviceBufferInfo{};
+			deviceBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+			deviceBufferInfo.size = chunkVerticesSize;
+			deviceBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+			deviceBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+			vmaCreateBuffer(allocator, &deviceBufferInfo, &deviceAllocInfo, &chunkBuffers.vertexBuffer, &chunkBuffers.vertexAllocation, nullptr);
+
+			copyBuffer(stagingBuffer, chunkBuffers.vertexBuffer, chunkVerticesSize);
+
+			vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
+
+			//Use a staging buffer to send index data to GPU
+			VkBufferCreateInfo stagingIndexBufferInfo{};
+			stagingIndexBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+			stagingIndexBufferInfo.size = chunkIndicesSize;
+			stagingIndexBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+			stagingIndexBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+			VkBuffer indexStagingBuffer;
+			VmaAllocation indexStagingAllocation;
+			vmaCreateBuffer(allocator, &stagingIndexBufferInfo, &stagingAllocInfo, &indexStagingBuffer, &indexStagingAllocation, nullptr);
+
+			void* indexData;
+			vmaMapMemory(allocator, indexStagingAllocation, &indexData);
+			memcpy(indexData, chunkIndices.data(), (size_t)chunkIndicesSize);
+			vmaUnmapMemory(allocator, indexStagingAllocation);
+
+			VkBufferCreateInfo deviceIndexBufferInfo{};
+			deviceIndexBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+			deviceIndexBufferInfo.size = chunkIndicesSize;
+			deviceIndexBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+			deviceIndexBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+			vmaCreateBuffer(allocator, &deviceIndexBufferInfo, &deviceAllocInfo, &chunkBuffers.indexBuffer, &chunkBuffers.indexAllocation, nullptr);
+
+			copyBuffer(indexStagingBuffer, chunkBuffers.indexBuffer, chunkIndicesSize);
+
+			vmaDestroyBuffer(allocator, indexStagingBuffer, indexStagingAllocation);
 		}
 
-		VkMemoryRequirements memRequirements;
-		vkGetBufferMemoryRequirements(device, buffer, &memRequirements);
+	}
 
-		VkMemoryAllocateInfo allocInfo{};
-		allocInfo.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-		allocInfo.allocationSize = ;
-		allocInfo.memoryTypeIndex = ;
-
-		if (vkAllocateMemory(device, &allocInfo, nullptr, &chunkMemory) != VK_SUCCESS) {
-			throw std::runtime_error("failed to allocate chunk memory!");
+	void constructChunk(std::array<int, 3> coords, std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
+		//First query our chunks to see if it exists
+		if (chunks.contains(coords) == false) {
+			return;
 		}
 
-		//Create individual chunk buffers, allocating from the previous pool
+		uint16_t idx = 0;
+		for (size_t i = 0; i < CHUNK_VOL; i++) {
+			//Naive draw every face, to be changed!
+			if (chunks[coords][i].isActive == true) {
+				float x = i / (CHUNK_SIZE * CHUNK_SIZE);
+				float y = (i / CHUNK_SIZE) % CHUNK_SIZE;
+				float z = i % CHUNK_SIZE;
 
-		*/
+				vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f} });
+				vertices.push_back({ {x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f} });
+				vertices.push_back({ {x, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
+				vertices.push_back({ {x, y, z + 1.0f},            {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
+				vertices.push_back({ {x, y + 1.0f, z + 1.0f},     {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f} });
+				vertices.push_back({ {x + 1.0f, y + 1.0f, z},     {1.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
+				vertices.push_back({ {x + 1.0f, y, z + 1.0f},     {1.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
+				vertices.push_back({ {x + 1.0f, y + 1.0f, z + 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f} });
+
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 6) });
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 6), static_cast<uint16_t>(idx + 3) });
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 2), static_cast<uint16_t>(idx + 5) });
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 5), static_cast<uint16_t>(idx + 1) });
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 5), static_cast<uint16_t>(idx + 7) });
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 6) });
+
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 2) });
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 4) });
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 4) });
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 6), static_cast<uint16_t>(idx + 7) });
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 5), static_cast<uint16_t>(idx + 2) });
+				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 5) });
+
+				idx += 8;
+			}
+		}
 	}
 
 	void createUniformBuffers() {
@@ -1595,11 +1711,12 @@ private:
 
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
-		vkDestroyBuffer(device, indexBuffer, nullptr);
-		vkFreeMemory(device, indexBufferMemory, nullptr);
+		for (auto& [coords, chunk] : loadedChunks) {
+			vmaDestroyBuffer(allocator, chunk.indexBuffer, chunk.indexAllocation);
+			vmaDestroyBuffer(allocator, chunk.vertexBuffer, chunk.vertexAllocation);
+		}
 
-		vkDestroyBuffer(device, vertexBuffer, nullptr);
-		vkFreeMemory(device, vertexBufferMemory, nullptr);
+		vmaDestroyAllocator(allocator);
 
 		vkDestroyPipeline(device, graphicsPipeline, nullptr);
 		vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
@@ -1688,50 +1805,8 @@ private:
 		}
 
 		chunks[std::array<int, 3>{0, 0, 0}] = testChunk;
-	}
 
-	void initScene() {
-
-		vertices.clear();
-		indices.clear();
-
-		for (const auto& [coords, chunk] : chunks) {
-			uint16_t idx = 0;
-			for (size_t i = 0; i < CHUNK_VOL; i++) {
-				//Naive draw every face, to be changed!
-				if (chunk[i].isActive == true) {
-					float x = i / (CHUNK_SIZE*CHUNK_SIZE);
-					float y = (i / CHUNK_SIZE) % CHUNK_SIZE;
-					float z = i % CHUNK_SIZE;
-
-					vertices.push_back({{x, y, z},                   {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f}});
-					vertices.push_back({{x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}});
-					vertices.push_back({{x, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}});
-					vertices.push_back({{x, y, z + 1.0f},            {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
-					vertices.push_back({{x, y + 1.0f, z + 1.0f},     {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f} });
-					vertices.push_back({{x + 1.0f, y + 1.0f, z},     {1.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
-					vertices.push_back({{x + 1.0f, y, z + 1.0f},     {1.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
-					vertices.push_back({{x + 1.0f, y + 1.0f, z + 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f} });
-
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx+1), static_cast<uint16_t>(idx + 6) });
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx+6), static_cast<uint16_t>(idx+3)});
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx+2), static_cast<uint16_t>(idx+5)});
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx+5), static_cast<uint16_t>(idx+1) });
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx+1), static_cast<uint16_t>(idx+5), static_cast<uint16_t>(idx + 7) });
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx+1), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 6) });
-
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 2) });
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 4) });
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 4) });
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 6), static_cast<uint16_t>(idx + 7) });
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 5), static_cast<uint16_t>(idx + 2) });
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 5) });
-
-					idx += 8;
-				}
-			}
-		}
-
+		loadedChunks[std::array<int, 3>{0, 0, 0}] = {};
 	}
 
 	void loadChunk() {
