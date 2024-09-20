@@ -170,6 +170,7 @@ struct ChunkResources {
 	VkBuffer indexBuffer;
 	VmaAllocation vertexAllocation;
 	VmaAllocation indexAllocation;
+	uint32_t indexCount;
 	//Perhaps I could cache the model matrix here too? (Or I could easily calculate it from pos)
 };
 
@@ -857,12 +858,17 @@ private:
 		dynamicState.dynamicStateCount = static_cast<uint32_t>(dynamicStates.size());
 		dynamicState.pDynamicStates = dynamicStates.data();
 
+		VkPushConstantRange range{};
+		range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+		range.offset = 0;
+		range.size = 16;
+
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo{};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
 		pipelineLayoutInfo.setLayoutCount = 1;
 		pipelineLayoutInfo.pSetLayouts = &descriptorSetLayout;
-		pipelineLayoutInfo.pushConstantRangeCount = 0;
-		pipelineLayoutInfo.pPushConstantRanges = nullptr;
+		pipelineLayoutInfo.pushConstantRangeCount = 1;
+		pipelineLayoutInfo.pPushConstantRanges = &range;
 
 		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create pipeline layout!");
@@ -1388,6 +1394,8 @@ private:
 			copyBuffer(indexStagingBuffer, chunkBuffers.indexBuffer, chunkIndicesSize);
 
 			vmaDestroyBuffer(allocator, indexStagingBuffer, indexStagingAllocation);
+
+			chunkBuffers.indexCount = chunkIndices.size();
 		}
 
 	}
@@ -1571,11 +1579,6 @@ private:
 		vkCmdBeginRenderPass(commandBuffer, &renderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
-		VkBuffer vertexBuffers[] = { vertexBuffer };
-		VkDeviceSize offsets[] = { 0 };
-		vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-		vkCmdBindIndexBuffer(commandBuffer, indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-
 		VkViewport viewport{};
 		viewport.x = 0.0f;
 		viewport.y = 0.0f;
@@ -1591,7 +1594,26 @@ private:
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
 		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[currentFrame], 0, nullptr);
-		vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(indices.size()), 1, 0, 0, 0);
+
+		//Draw every loaded chunk
+		for (const auto& [coords, chunkMem] : loadedChunks) {
+			//TO ADD: ignore empty chunks (they have no associated buffers!)
+
+			//Set Push Constants to model matrix offset coords (only 16 bytes!)
+			float data[4] = { float(coords[0]*CHUNK_SIZE), float(coords[1]*CHUNK_SIZE), float(coords[2]*CHUNK_SIZE), 0.0f };
+			uint32_t offset = 0;
+			uint32_t size = 16;
+			vkCmdPushConstants(commandBuffer, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, offset, size, data);
+
+			//Bind Vertex and Index Buffers
+			VkBuffer vertexBuffers[] = { chunkMem.vertexBuffer };
+			VkDeviceSize offsets[] = { 0 };
+			vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+			vkCmdBindIndexBuffer(commandBuffer, chunkMem.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
+
+			vkCmdDrawIndexed(commandBuffer, chunkMem.indexCount, 1, 0, 0, 0);
+		}
+
 		vkCmdEndRenderPass(commandBuffer);
 
 		if (vkEndCommandBuffer(commandBuffer) != VK_SUCCESS) {
@@ -1795,6 +1817,8 @@ private:
 	}
 
 	void initGeometry() {
+		//init World geometry, set initial camera pos, set inital loaded chunks
+		//TODO: change my chunks map to map to pointers and allocate chunks on the heap
 		std::array<Voxel, CHUNK_VOL> testChunk{};
 
 		for (size_t i = 0; i < CHUNK_VOL; i++) {
@@ -1805,8 +1829,10 @@ private:
 		}
 
 		chunks[std::array<int, 3>{0, 0, 0}] = testChunk;
+		chunks[std::array<int, 3>{0, -1, -1}] = testChunk;
 
 		loadedChunks[std::array<int, 3>{0, 0, 0}] = {};
+		loadedChunks[std::array<int, 3>{0, -1, -1}] = {};
 	}
 
 	void loadChunk() {
