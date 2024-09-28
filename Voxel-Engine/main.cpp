@@ -15,6 +15,7 @@
 #include <glm/glm.hpp>
 #include <array>
 #include <unordered_map>
+#include <thread>
 
 #define GLM_FORCE_RADIANS
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE
@@ -34,6 +35,7 @@
 #define CHUNK_VOL CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE
 
 #define VIEW_DISTANCE 2
+#define MOUSE_SENSITIVITY 0.1
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
@@ -129,25 +131,6 @@ struct UniformBufferObject {
 	glm::mat4 proj;
 };
 
-/*
-std::vector<Vertex> vertices = {
-	{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-	{{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-	{{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-	{{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-
-	{{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
-	{{0.5f, -0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
-	{{0.5f, 0.5f, -0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
-	{{-0.5f, 0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}}
-};
-
-std::vector<uint16_t> indices = {
-	0, 1, 2, 2, 3, 0,
-	4, 5, 6, 6, 7, 4
-};
-*/
-
 enum class BlockType : short {
 	DEFAULT,
 	GRASS,
@@ -171,7 +154,7 @@ struct Array3Hash {
 	}
 };
 
-//pointer to std::array<Voxel, CHUNK_VOL>
+//Voxel* is a pointer to std::array<Voxel, CHUNK_VOL>
 std::unordered_map<std::array<int, 3>, Voxel*, Array3Hash> chunks;
 
 struct ChunkResources {
@@ -180,10 +163,15 @@ struct ChunkResources {
 	VmaAllocation vertexAllocation;
 	VmaAllocation indexAllocation;
 	uint32_t indexCount;
-	//Perhaps I could cache the model matrix here too? (Or I could easily calculate it from pos)
 };
 
 std::unordered_map<std::array<int, 3>, ChunkResources, Array3Hash> loadedChunks;
+
+struct GameState {
+	glm::vec3 playerPos;
+	glm::vec1 playerYaw;
+	glm::vec1 playerPitch;
+};
 
 class VoxelEngine{
 public:
@@ -239,8 +227,21 @@ private:
 
 	VmaAllocator allocator;
 
-	bool framebufferResized = false;
 	uint32_t currentFrame = 0;
+	bool firstUpdate = true;
+
+	//Shared Resources (between threads)
+	std::atomic<bool> framebufferResized = false;
+	GameState state0, state1;
+	std::mutex stateMutex0, stateMutex1;
+	int updateState = 0;
+	int renderState = 0;
+	bool stateUpdate0 = false;
+	bool stateUpdate1 = false;
+	float lastX = 0, lastY = 0;
+	float yaw;
+	float pitch;
+	
 
 	void initWindow() {
 		glfwInit();
@@ -249,12 +250,50 @@ private:
 
 		window = glfwCreateWindow(WIDTH, HEIGHT, "Vulkan", nullptr, nullptr);
 		glfwSetWindowUserPointer(window, this);
+		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 		glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
+		glfwSetKeyCallback(window, keyCallback);
+		glfwSetCursorPosCallback(window, cursorPosCallback);
 	}
 
 	static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
 		auto app = reinterpret_cast<VoxelEngine*>(glfwGetWindowUserPointer(window));
 		app->framebufferResized = true;
+	}
+
+	static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+
+	}
+
+	bool first = true;
+
+	static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
+		//Update playerYaw and playerPitch in the game state corresponding to the update
+		auto app = reinterpret_cast<VoxelEngine*>(glfwGetWindowUserPointer(window));
+		if (app->first == true) {
+			app->lastX = xpos;
+			app->lastY = ypos;
+			app->first = false;
+		}
+
+		float dx = app->lastX - xpos;
+		float dy = ypos - app->lastY;
+
+		app->lastX = xpos;
+		app->lastY = ypos;
+
+		dx *= MOUSE_SENSITIVITY;
+		dy *= MOUSE_SENSITIVITY;
+
+		app->yaw += dx;
+		app->pitch += dy;
+
+		if (app->pitch > 89.0f) {
+			app->pitch = 89.0f;
+		}
+		if (app->pitch < -89.0f) {
+			app->pitch = -89.0f;
+		}
 	}
 
 	void initVulkan(){
@@ -274,11 +313,7 @@ private:
 		createTextureImage();
 		createTextureImageView();
 		createTextureSampler();
-
-		//createVertexBuffer();
-		//createIndexBuffer();
 		createVertexAndIndexBuffers();
-
 		createUniformBuffers();
 		createDescriptorPool();
 		createDescriptorSets();
@@ -1269,53 +1304,6 @@ private:
 		}
 	}
 
-	/*
-	* // To be removed
-	void createVertexBuffer() {
-		VkDeviceSize bufferSize = sizeof(vertices[0]) * vertices.size();
-
-		VkBuffer stagingBuffer;
-		VkDeviceMemory stagingBufferMemory;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-		void* data;
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, vertices.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
-
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, vertexBuffer, vertexBufferMemory);
-
-		copyBuffer(stagingBuffer, vertexBuffer, bufferSize);
-
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
-	}
-
-	void createIndexBuffer() {
-		VkDeviceSize bufferSize = sizeof(indices[0]) * indices.size();
-
-		VkBuffer stagingBuffer;
-		VkDeviceMemory stagingBufferMemory;
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
-			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
-
-		void* data;
-		vkMapMemory(device, stagingBufferMemory, 0, bufferSize, 0, &data);
-		memcpy(data, indices.data(), (size_t)bufferSize);
-		vkUnmapMemory(device, stagingBufferMemory);
-
-		createBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, indexBuffer, indexBufferMemory);
-
-		copyBuffer(stagingBuffer, indexBuffer, bufferSize);
-
-		vkDestroyBuffer(device, stagingBuffer, nullptr);
-		vkFreeMemory(device, stagingBufferMemory, nullptr);
-	}
-	*/
-
 	void createVertexAndIndexBuffers() {
 		//Initialize VMA
 
@@ -1738,15 +1726,68 @@ private:
 	}
 
 	void mainLoop(){
-		while (!glfwWindowShouldClose(window)) {
-			glfwPollEvents();
-			drawFrame();
+
+		std::thread rt(&VoxelEngine::renderThread, this);
+
+		updateThread();
+
+		//While not a strictly necessary check, I'll add it for possible extension in the future
+		if (rt.joinable()) {
+			rt.join();
 		}
 
 		vkDeviceWaitIdle(device);
 	}
 
-	void drawFrame() {
+	void updateThread() {
+		auto startTime = std::chrono::high_resolution_clock::now();
+		while (!glfwWindowShouldClose(window)) {
+			auto currentTime = std::chrono::high_resolution_clock::now();
+			if (updateState == 0 && stateUpdate0 == false) {
+				std::unique_lock<std::mutex> lock(stateMutex0);
+				glfwPollEvents();
+				//Update Game State
+				state0.playerPitch = glm::vec1(pitch);
+				state0.playerYaw = glm::vec1(yaw);
+				state0.playerPos = glm::vec3(-10.0f, -10.0f, -10.0f);
+				//Step Physics
+				stateUpdate0 = true;
+				updateState = 1;
+			} else if (updateState == 1 && stateUpdate1 == false) {
+				std::unique_lock<std::mutex> lock(stateMutex1);
+				glfwPollEvents();
+				//Update Game State
+				state1.playerPitch = glm::vec1(pitch);
+				state1.playerYaw = glm::vec1(yaw);
+				state1.playerPos = glm::vec3(-10.0f, -10.0f, -10.0f);
+				//Step Physics
+				stateUpdate1 = true;
+				updateState = 0;
+			}
+
+			//Release the lock early
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+	}
+
+	void renderThread() {
+		while (!glfwWindowShouldClose(window)) {
+			if (renderState == 0 && stateUpdate0 == true) {
+				std::unique_lock<std::mutex> lock(stateMutex0);
+				drawFrame(state0);
+				stateUpdate0 = false;
+				renderState = 1;
+			} else if (renderState == 1 && stateUpdate1 == true) {
+				std::unique_lock<std::mutex> lock(stateMutex1);
+				drawFrame(state1);
+				stateUpdate1 = false;
+				renderState = 0;
+			}
+
+		}
+	}
+
+	void drawFrame(GameState gs) {
 		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
 
 		uint32_t imageIndex;
@@ -1759,7 +1800,7 @@ private:
 			throw std::runtime_error("failed to acquire swap chain image!");
 		}
 
-		updateUniformBuffer(currentFrame);
+		updateUniformBuffer(currentFrame, gs);
 
 		vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
@@ -1900,15 +1941,18 @@ private:
 		vkDestroySwapchainKHR(device, swapChain, nullptr);
 	}
 
-	void updateUniformBuffer(uint32_t currentImage) {
+	void updateUniformBuffer(uint32_t currentImage, GameState gs) {
 		static auto startTime = std::chrono::high_resolution_clock::now();
 
 		auto currentTime = std::chrono::high_resolution_clock::now();
 		float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
 		UniformBufferObject ubo{};
+		//Model matrix is obsolete here; I've implemented model matrices via push constants.
 		ubo.model = glm::mat4(1.0f);//glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-		ubo.view = glm::lookAt(glm::vec3(-10.0f, -10.0f, -10.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+		//ubo.view = glm::lookAt(glm::vec3(-10.0f, -10.0f, -10.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+		glm::vec3 direction = glm::vec3(cos(glm::radians(gs.playerYaw)) * cos(glm::radians(gs.playerPitch)), sin(glm::radians(gs.playerPitch)), cos(glm::radians(gs.playerPitch)) * sin(glm::radians(gs.playerYaw)));
+		ubo.view = glm::lookAt(gs.playerPos, gs.playerPos + direction, glm::vec3(0.0f, -1.0f, 0.0f));
 		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 1500.0f);
 		ubo.proj[1][1] *= -1;
 
@@ -1922,7 +1966,15 @@ private:
 		//write and load to 0,0,0
 		chunks[std::array<int, 3>{0, 0, 0}] = new Voxel[CHUNK_VOL];
 		for (size_t i = 0; i < CHUNK_VOL; i++) {
-			chunks[std::array<int, 3>{0, 0, 0}][i] = Voxel(true, BlockType::DIRT);
+			int x = i / (CHUNK_SIZE * CHUNK_SIZE);
+			int y = (i / CHUNK_SIZE) % CHUNK_SIZE;
+			int z = i % CHUNK_SIZE;
+			if (y < 12) {
+				chunks[std::array<int, 3>{0, 0, 0}][i] = Voxel(true, BlockType::DIRT);
+			}
+			else {
+				chunks[std::array<int, 3>{0, 0, 0}][i] = Voxel(true, BlockType::STONE);
+			}
 		}
 		loadedChunks[std::array<int, 3>{0, 0, 0}] = {};
 
