@@ -41,6 +41,7 @@ const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
+const float fixedTimeStep = 1.0f / 60.0f;
 
 const std::vector<const char*> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
@@ -173,6 +174,8 @@ struct GameState {
 	glm::vec1 playerPitch;
 };
 
+std::unordered_map<int, bool> keyState;
+
 class VoxelEngine{
 public:
 	void run(){
@@ -207,10 +210,6 @@ private:
 	std::vector<VkSemaphore> imageAvailableSemaphores;
 	std::vector<VkSemaphore> renderFinishedSemaphores;
 	std::vector<VkFence> inFlightFences;
-	//VkBuffer vertexBuffer;
-	//VkDeviceMemory vertexBufferMemory;
-	//VkBuffer indexBuffer;
-	//VkDeviceMemory indexBufferMemory;
 	VkDeviceMemory chunkMemory;
 	VkDescriptorPool descriptorPool;
 	std::vector<VkDescriptorSet> descriptorSets;
@@ -241,6 +240,8 @@ private:
 	float lastX = 0, lastY = 0;
 	float yaw;
 	float pitch;
+	glm::vec3 velocity;
+	glm::vec3 position;
 	
 
 	void initWindow() {
@@ -1490,33 +1491,6 @@ private:
 					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 2), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 3) });
 					idx += 4;
 				}
-
-				/*
-				* 
-				* Old Implementation, doesn't check for empty faces
-				vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {1.0f, 0.0f} });
-				vertices.push_back({ {x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f} });
-				vertices.push_back({ {x, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
-				vertices.push_back({ {x, y, z + 1.0f},            {0.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
-				vertices.push_back({ {x, y + 1.0f, z + 1.0f},     {0.0f, 1.0f, 1.0f}, {1.0f, 1.0f} });
-				vertices.push_back({ {x + 1.0f, y + 1.0f, z},     {1.0f, 1.0f, 0.0f}, {0.0f, 0.0f} });
-				vertices.push_back({ {x + 1.0f, y, z + 1.0f},     {1.0f, 0.0f, 1.0f}, {0.0f, 0.0f} });
-				vertices.push_back({ {x + 1.0f, y + 1.0f, z + 1.0f}, {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f} });
-
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 6) });
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 6), static_cast<uint16_t>(idx + 3) });
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 2), static_cast<uint16_t>(idx + 5) });
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 5), static_cast<uint16_t>(idx + 1) });
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 5), static_cast<uint16_t>(idx + 7) });
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 6) });
-
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 2) });
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 4) });
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 4) });
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 3), static_cast<uint16_t>(idx + 6), static_cast<uint16_t>(idx + 7) });
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 5), static_cast<uint16_t>(idx + 2) });
-				indices.insert(indices.end(), { static_cast<uint16_t>(idx + 4), static_cast<uint16_t>(idx + 7), static_cast<uint16_t>(idx + 5) });
-				*/
 			}
 		}
 	}
@@ -1739,35 +1713,69 @@ private:
 		vkDeviceWaitIdle(device);
 	}
 
+
+	//
 	void updateThread() {
-		auto startTime = std::chrono::high_resolution_clock::now();
+
+		auto t = std::chrono::milliseconds(0);
+		auto accumulator = std::chrono::milliseconds(0);
+		auto currentTime = std::chrono::high_resolution_clock::now();
+
 		while (!glfwWindowShouldClose(window)) {
-			auto currentTime = std::chrono::high_resolution_clock::now();
-			if (updateState == 0 && stateUpdate0 == false) {
+			bool applyState = false;
+
+			auto newTime = std::chrono::high_resolution_clock::now();
+			auto stepTime = newTime - currentTime;
+			currentTime = newTime;
+
+			accumulator += stepTime;
+
+			// If the accumulator exceeds a fixedTimeStep, we process as many steps as needed, then apply it to the shared game state
+			while(accumulator >= fixedTimeStep){
+				//Update Physics
+				updatePhysics(fixedTimeStep);
+				accumulator -= fixedTimeStep;
+				t += fixedTimeStep;
+				applyState = true;
+			}
+
+			//Update Shared Game State
+			//TODO: Streamline update states
+			if (updateState == 0 && stateUpdate0 == false && applyState) {
 				std::unique_lock<std::mutex> lock(stateMutex0);
 				glfwPollEvents();
 				//Update Game State
 				state0.playerPitch = glm::vec1(pitch);
 				state0.playerYaw = glm::vec1(yaw);
-				state0.playerPos = glm::vec3(-10.0f, -10.0f, -10.0f);
+				state0.playerPos = position;
 				//Step Physics
 				stateUpdate0 = true;
 				updateState = 1;
-			} else if (updateState == 1 && stateUpdate1 == false) {
+			} else if (updateState == 1 && stateUpdate1 == false && applyState) {
 				std::unique_lock<std::mutex> lock(stateMutex1);
 				glfwPollEvents();
 				//Update Game State
 				state1.playerPitch = glm::vec1(pitch);
 				state1.playerYaw = glm::vec1(yaw);
-				state1.playerPos = glm::vec3(-10.0f, -10.0f, -10.0f);
+				state1.playerPos = position;
 				//Step Physics
 				stateUpdate1 = true;
 				updateState = 0;
 			}
 
-			//Release the lock early
-			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			//TODO: Release the lock early
+
+			// Sleep for the remaining time
+			if(fixedTimeStep - accumulator > 0.0f) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(fixedTimeStep - accumulator));
+			}
 		}
+	}
+
+	void updatePhysics(float timeStep){
+		//Naive update without collisions for testing
+		// TODO: AABB collisions
+		position += fixedTimeStep * velocity;
 	}
 
 	void renderThread() {
@@ -1993,6 +2001,9 @@ private:
 			}
 		}
 		loadedChunks[std::array<int, 3>{-1, 0, 0}] = {};
+
+		velocity = glm::vec3(-0.1f, -0.1f, 0.0f);
+		position = glm::vec3(-10.0f, -10.0f, -10.0f);
 	}
 
 	void loadChunk() {
