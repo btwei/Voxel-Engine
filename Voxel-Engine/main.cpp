@@ -30,6 +30,9 @@
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
 
+// Config Settings
+// TODO: move config to a separate config.h file
+
 #define CHUNK_SIZE 32
 #define CHUNK_AREA CHUNK_SIZE*CHUNK_SIZE
 #define CHUNK_VOL CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE
@@ -37,12 +40,26 @@
 #define VIEW_DISTANCE 2
 #define MOUSE_SENSITIVITY 0.1
 #define PLAYER_SPEED 3
+#define GRAVITY 1
+#define PLAYER_HEIGHT 1.5
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
 const auto fixedTimeStep = std::chrono::duration<double>( 1.0f / 60.0f);
+
+bool noClip = false;
+
+enum CONTROL_SCHEME{
+	DEFAULT,
+	NOCLIP,
+	UNMANAGED
+};
+
+enum CONTROL_SCHEME playerBehaviour = DEFAULT;
+
+// End Config
 
 const std::vector<const char*> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
@@ -1305,7 +1322,7 @@ private:
 		samplerInfo.unnormalizedCoordinates = VK_FALSE;
 		samplerInfo.compareEnable = VK_FALSE;
 		samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST; // TODO: Enable Mipmapping with texture atlases (or swap to texture arrays)
 		samplerInfo.mipLodBias = 0.0f;
 		samplerInfo.minLod = 0.0f;
 		samplerInfo.maxLod = 0.0f;
@@ -1416,7 +1433,7 @@ private:
 
 		uint16_t idx = 0; //Index for new vertices
 		
-		//Possibly in the future I could unify my faces, which reduces the vertex count, but this is not usually possible if the block types are different, so additional logic is necessary
+		//Possibly in the future I could unify my faces, which reduces the vertex count, but this is not usually possible if the block types are different, so additional logic would be necessary
 		//std::unordered_map<std::array<int, 3>, uint16_t, Array3Hash> vert_idx_map;
 
 		for (size_t i = 0; i < CHUNK_VOL; i++) {
@@ -1723,8 +1740,6 @@ private:
 		vkDeviceWaitIdle(device);
 	}
 
-
-	//
 	void updateThread() {
 
 		//auto t = std::chrono::nanoseconds(0); // If time is a factor in physics updates
@@ -1783,13 +1798,101 @@ private:
 	}
 
 	void updatePhysics(){
+		if(true){ // TODO: if default controls
+			float yComponent = velocity.y;
+			float ws = glfwGetKey(window, GLFW_KEY_W) - glfwGetKey(window, GLFW_KEY_S);
+			float ad = glfwGetKey(window, GLFW_KEY_D) - glfwGetKey(window, GLFW_KEY_A);
+			velocity = (ws * glm::normalize(forward) + ad * right) * (float)PLAYER_SPEED * (1 + glfwGetKey(window, GLFW_KEY_SHIFT));
+			velocity.y = yComponent + GRAVITY;
 
-		float ws = glfwGetKey(window, GLFW_KEY_W) - glfwGetKey(window, GLFW_KEY_S);
-		float ad = glfwGetKey(window, GLFW_KEY_D) - glfwGetKey(window, GLFW_KEY_A);
-		velocity = (ws * forward + ad * right) * (float)PLAYER_SPEED;
+			movePlayerAndCollide());
 
-		// TODO: AABB collisions
-		position += static_cast<float>(fixedTimeStep.count()) * velocity;
+		} else if(false) { // NO CLIP controls
+			float ws = glfwGetKey(window, GLFW_KEY_W) - glfwGetKey(window, GLFW_KEY_S);
+			float ad = glfwGetKey(window, GLFW_KEY_D) - glfwGetKey(window, GLFW_KEY_A);
+			velocity = (ws * forward + ad * right) * (float)PLAYER_SPEED;
+		} else {
+			
+		}
+	}
+
+	void movePlayerAndCollide() {
+		position.x += static_cast<float>(fixedTimeStep.count()) * velocity.x;
+		std::vector<WorldVoxel> voxelOverlap = fetchVoxelsAtPlayer();
+
+		for(WorldVoxel wv : voxelOverlapX) {
+			if(wv.isActive == true){
+				if(velocity.x > 0 && worldVoxelToWorldPos(wv).x < position.x){
+					position.x = worldVoxelToWorldPos(wv).x;
+				} else if (worldVoxelToWorldPos(wv).x + 1 > position.x) {
+					position.x = worldVoxelToWorldPos(wv).x;
+				}
+			}
+		}
+
+		position.z += static_cast<float>(fixedTimeStep.count()) * velocity.z;
+		voxelOverlapX = fetchVoxelsAtPlayer();
+
+		for(WorldVoxel wv : voxelOverlapX) {
+			if(wv.isActive == true){
+				if(velocity.z > 0 && worldVoxelToWorldPos(wv).z < position.z){
+					position.z = worldVoxelToWorldPos(wv).z;
+				} else if (worldVoxelToWorldPos(wv).z + 1 > position.z) {
+					position.z = worldVoxelToWorldPos(wv).z;
+				}
+			}
+		}
+
+		position.y += static_cast<float>(fixedTimeStep.count()) * velocity.y;
+		voxelOverlap = fetchVoxelsAtPlayer();
+
+		for(WorldVoxel wv : voxelOverlapX) {
+			if(wv.isActive == true){
+				if(velocity.y > 0 && worldVoxelToWorldPos(wv).y < position.y){
+					velocity.y = 0;
+					position.y = worldVoxelToWorldPos(wv).y;
+				} else if (worldVoxelToWorldPos(wv).y + 1 > position.y) {
+					velocity.y = 0;
+					position.y = worldVoxelToWorldPos(wv).y;
+				}
+			}
+		}
+	}
+
+	struct WorldVoxel {
+		std::array<int, 3> chunkPos;
+		int voxelI;
+		bool isActive;
+	}
+
+	std::vector<WorldVoxel> fetchVoxelsAtPlayer () {
+		std::vector<WorldVoxel> voxelList;
+		glm::vec3 pos = position - glm::vec3(0.5, 0, 0.5)
+		for (int x = 0; x < 1; x++){
+			for(int z=0; z < 1; z++) {
+				for (int y=0; y < PLAYER_HEIGHT; y++) {
+					voxelList.push_back(worldPosToWorldVoxel(pos + glm::vex3(x, y, z)));
+				}
+			}
+		}
+
+		return voxelList;
+	}
+
+	WorldVoxel worldPosToWorldVoxel (glm::vec3 pos) {
+		if(chunks.contains(std::array<int, 3>{static_cast<int>(pos.x / CHUNK_SIZE), static_cast<int>(pos.y / CHUNK_SIZE), static_cast<int>(pos.z / CHUNK_SIZE)})){
+			if(chunks[std::array<int, 3>{static_cast<int>(pos.x / CHUNK_SIZE), static_cast<int>(pos.y / CHUNK_SIZE), static_cast<int>(pos.z / CHUNK_SIZE)})][voxelCoordToI(int(pos.x) % CHUNK_SIZE,int(pos.y) % CHUNK_SIZE,int(pos.z) % CHUNK_SIZE)].isActive() == true) {
+				return WorldVoxel{std::array<int, 3>{static_cast<int>(pos.x / CHUNK_SIZE), static_cast<int>(pos.y / CHUNK_SIZE), static_cast<int>(pos.z / CHUNK_SIZE)}, voxelCoordToI(int(pos.x) % CHUNK_SIZE,int(pos.y) % CHUNK_SIZE,int(pos.z) % CHUNK_SIZE), true};
+			}
+		}
+		return WorldVoxel{std::array<int,3>{0, 0, 0}, 0, false};
+	}
+
+	glm::vec3 worldVoxelToWorldPox (WorldVoxel wv) {
+		int x = wv.voxelI / (CHUNK_SIZE * CHUNK_SIZE);
+		int y = (wv.voxelI / CHUNK_SIZE) % CHUNK_SIZE;
+		int z = wv.voxelI % CHUNK_SIZE;
+		return glm::vec3(chunkPos.x * CHUNK_SIZE + x, chunkPos.y * CHUNK_SIZE + y, chunkPos.z * CHUNK_SIZE + z);
 	}
 
 	void renderThread() {
@@ -1971,8 +2074,7 @@ private:
 
 		UniformBufferObject ubo{};
 		//Model matrix is obsolete here; I've implemented model matrices via push constants.
-		ubo.model = glm::mat4(1.0f);//glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-		//ubo.view = glm::lookAt(glm::vec3(-10.0f, -10.0f, -10.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+		ubo.model = glm::mat4(1.0f);
 		glm::vec3 direction = glm::vec3(cos(glm::radians(gs.playerYaw)) * cos(glm::radians(gs.playerPitch)), sin(glm::radians(gs.playerPitch)), cos(glm::radians(gs.playerPitch)) * sin(glm::radians(gs.playerYaw)));
 		ubo.view = glm::lookAt(gs.playerPos, gs.playerPos + direction, glm::vec3(0.0f, -1.0f, 0.0f));
 		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 1500.0f);
@@ -2016,13 +2118,17 @@ private:
 		}
 		loadedChunks[std::array<int, 3>{-1, 0, 0}] = {};
 
-		velocity = glm::vec3(-0.1f, -0.1f, 0.0f);
-		position = glm::vec3(-10.0f, -10.0f, -10.0f);
+		position = glm::vec3(16.0f, 16.0f, 16.0f);
 	}
 
 	void loadChunk() {
 		//Given coords, chunk data, and buffer; use staging buffer to load chunk into memory
 		//should be done once per chunk in init, then as needed during the update
+	}
+
+	void generateChunk() {
+		//logic to apply to uninitialized chunks
+
 	}
 
 };
