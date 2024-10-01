@@ -36,12 +36,13 @@
 
 #define VIEW_DISTANCE 2
 #define MOUSE_SENSITIVITY 0.1
+#define PLAYER_SPEED 3
 
 const uint32_t WIDTH = 800;
 const uint32_t HEIGHT = 600;
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
-const float fixedTimeStep = 1.0f / 60.0f;
+const auto fixedTimeStep = std::chrono::duration<double>( 1.0f / 60.0f);
 
 const std::vector<const char*> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
@@ -180,7 +181,7 @@ class VoxelEngine{
 public:
 	void run(){
 		initWindow();
-		initGeometry();
+		initWorld();
 		initVulkan();
 		mainLoop();
 		cleanup();
@@ -242,6 +243,8 @@ private:
 	float pitch;
 	glm::vec3 velocity;
 	glm::vec3 position;
+	glm::vec3 forward;
+	glm::vec3 right;
 	
 
 	void initWindow() {
@@ -295,6 +298,13 @@ private:
 		if (app->pitch < -89.0f) {
 			app->pitch = -89.0f;
 		}
+
+		app->forward.x = cos(glm::radians(app->yaw)) * cos(glm::radians(app->pitch));
+		app->forward.y = sin(glm::radians(app->pitch));
+		app->forward.z = sin(glm::radians(app->yaw)) * cos(glm::radians(app->pitch));
+		app->forward = glm::normalize(app->forward);
+
+		app->right = glm::normalize(glm::cross(app->forward, glm::vec3(0.0f, -1.0f, 0.0f)));
 	}
 
 	void initVulkan(){
@@ -1280,8 +1290,8 @@ private:
 	void createTextureSampler() {
 		VkSamplerCreateInfo samplerInfo{};
 		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-		samplerInfo.magFilter = VK_FILTER_NEAREST;
-		samplerInfo.minFilter = VK_FILTER_NEAREST;
+		samplerInfo.magFilter = VK_FILTER_LINEAR;
+		samplerInfo.minFilter = VK_FILTER_LINEAR;
 		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -1717,8 +1727,8 @@ private:
 	//
 	void updateThread() {
 
-		auto t = std::chrono::milliseconds(0);
-		auto accumulator = std::chrono::milliseconds(0);
+		//auto t = std::chrono::nanoseconds(0); // If time is a factor in physics updates
+		auto accumulator = std::chrono::duration<double, std::nano>(0);
 		auto currentTime = std::chrono::high_resolution_clock::now();
 
 		while (!glfwWindowShouldClose(window)) {
@@ -1733,9 +1743,9 @@ private:
 			// If the accumulator exceeds a fixedTimeStep, we process as many steps as needed, then apply it to the shared game state
 			while(accumulator >= fixedTimeStep){
 				//Update Physics
-				updatePhysics(fixedTimeStep);
+				updatePhysics();
 				accumulator -= fixedTimeStep;
-				t += fixedTimeStep;
+				//t += fixedTimeStep;
 				applyState = true;
 			}
 
@@ -1766,16 +1776,20 @@ private:
 			//TODO: Release the lock early
 
 			// Sleep for the remaining time
-			if(fixedTimeStep - accumulator > 0.0f) {
-				std::this_thread::sleep_for(std::chrono::milliseconds(fixedTimeStep - accumulator));
+			if(fixedTimeStep - accumulator > std::chrono::nanoseconds(0)) {
+				std::this_thread::sleep_for(fixedTimeStep - accumulator);
 			}
 		}
 	}
 
-	void updatePhysics(float timeStep){
-		//Naive update without collisions for testing
+	void updatePhysics(){
+
+		float ws = glfwGetKey(window, GLFW_KEY_W) - glfwGetKey(window, GLFW_KEY_S);
+		float ad = glfwGetKey(window, GLFW_KEY_D) - glfwGetKey(window, GLFW_KEY_A);
+		velocity = (ws * forward + ad * right) * (float)PLAYER_SPEED;
+
 		// TODO: AABB collisions
-		position += fixedTimeStep * velocity;
+		position += static_cast<float>(fixedTimeStep.count()) * velocity;
 	}
 
 	void renderThread() {
@@ -1967,7 +1981,7 @@ private:
 		memcpy(uniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
 	}
 
-	void initGeometry() {
+	void initWorld() {
 		//init World geometry, set initial camera pos, set inital loaded chunks
 		//Consider creating a helper function for writing to chunks (takes a function input perhaps)
 
