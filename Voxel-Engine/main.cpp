@@ -190,6 +190,8 @@ struct GameState {
 	glm::vec3 playerPos;
 	glm::vec1 playerYaw;
 	glm::vec1 playerPitch;
+	std::vector<std::array<int, 3>> loadChunks;
+	std::vector<std::array<int, 3>> unloadChunks; 
 };
 
 std::unordered_map<int, bool> keyState;
@@ -262,7 +264,7 @@ private:
 	glm::vec3 position;
 	glm::vec3 forward;
 	glm::vec3 right;
-	
+	std::array<int, 3> playerChunk;
 
 	void initWindow() {
 		glfwInit();
@@ -1422,7 +1424,102 @@ private:
 
 			chunkBuffers.indexCount = chunkIndices.size();
 		}
+	}
 
+	void loadChunks(std::vector<std::array<int, 3>> chunkCoords){
+		for(const std::array<int,3>& coord : chunkCoords) {
+			if(!loadedChunks.contains(coord)){
+				// Add coord to loaded chunks, allocate buffers, fill with vertex and index data
+				loadedChunks[coord] = {};
+				// chunkBuffer is stored at loadedChunks[coord]
+
+				std::vector<Vertex> chunkVertices{};
+				std::vector<uint16_t> chunkIndices{};
+				constructChunk(coord, chunkVertices, chunkIndices);
+
+				//Skip empty chunks
+				if (chunkVertices.size() == 0 || chunkIndices.size() == 0) continue;
+
+				VkDeviceSize chunkVerticesSize = sizeof(chunkVertices[0]) * chunkVertices.size();
+				VkDeviceSize chunkIndicesSize = sizeof(chunkIndices[0]) * chunkIndices.size();
+
+				//Use a staging buffer to send vertex data to GPU
+				VmaAllocationCreateInfo stagingAllocInfo{};
+				stagingAllocInfo.usage = VMA_MEMORY_USAGE_CPU_ONLY;
+
+				VkBufferCreateInfo stagingBufferInfo{};
+				stagingBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+				stagingBufferInfo.size = chunkVerticesSize;
+				stagingBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+				stagingBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+				VkBuffer stagingBuffer;
+				VmaAllocation stagingAllocation;
+				vmaCreateBuffer(allocator, &stagingBufferInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, nullptr);
+
+				void* data;
+				vmaMapMemory(allocator, stagingAllocation, &data);
+				memcpy(data, chunkVertices.data(), (size_t)chunkVerticesSize);
+				vmaUnmapMemory(allocator, stagingAllocation);
+
+				VmaAllocationCreateInfo deviceAllocInfo = {};
+				deviceAllocInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+
+				VkBufferCreateInfo deviceBufferInfo{};
+				deviceBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+				deviceBufferInfo.size = chunkVerticesSize;
+				deviceBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+				deviceBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+				vmaCreateBuffer(allocator, &deviceBufferInfo, &deviceAllocInfo, &loadedChunks[coord].vertexBuffer, &loadedChunks[coord].vertexAllocation, nullptr);
+
+				copyBuffer(stagingBuffer, loadedChunks[coord].vertexBuffer, chunkVerticesSize);
+
+				vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation);
+
+				//Use a staging buffer to send index data to GPU
+				VkBufferCreateInfo stagingIndexBufferInfo{};
+				stagingIndexBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+				stagingIndexBufferInfo.size = chunkIndicesSize;
+				stagingIndexBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+				stagingIndexBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+				VkBuffer indexStagingBuffer;
+				VmaAllocation indexStagingAllocation;
+				vmaCreateBuffer(allocator, &stagingIndexBufferInfo, &stagingAllocInfo, &indexStagingBuffer, &indexStagingAllocation, nullptr);
+
+				void* indexData;
+				vmaMapMemory(allocator, indexStagingAllocation, &indexData);
+				memcpy(indexData, chunkIndices.data(), (size_t)chunkIndicesSize);
+				vmaUnmapMemory(allocator, indexStagingAllocation);
+
+				VkBufferCreateInfo deviceIndexBufferInfo{};
+				deviceIndexBufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+				deviceIndexBufferInfo.size = chunkIndicesSize;
+				deviceIndexBufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+				deviceIndexBufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+				vmaCreateBuffer(allocator, &deviceIndexBufferInfo, &deviceAllocInfo, &loadedChunks[coord].indexBuffer, &loadedChunks[coord].indexAllocation, nullptr);
+
+				copyBuffer(indexStagingBuffer, loadedChunks[coord].indexBuffer, chunkIndicesSize);
+
+				vmaDestroyBuffer(allocator, indexStagingBuffer, indexStagingAllocation);
+
+				loadedChunks[coord].indexCount = chunkIndices.size();
+
+			}
+		}
+	}
+
+	void unloadChunks(std::vector<std::array<int, 3>> chunkCoords) {
+		for(const std::array<int,3>& coord : chunkCoords){
+			if(loadedChunks.contains(coord)){
+				// Deallocate buffer, remove entry from loadedChunks
+				vmaDestroyBuffer(allocator, loadedChunks[coord].indexBuffer, loadedChunks[coord].indexAllocation);
+				vmaDestroyBuffer(allocator, loadedChunks[coord].vertexBuffer, loadedChunks[coord].vertexAllocation);
+				loadedChunks.erase(coord);
+			}
+		}
 	}
 
 	void constructChunk(std::array<int, 3> coords, std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
@@ -1759,6 +1856,7 @@ private:
 			while(accumulator >= fixedTimeStep){
 				//Update Physics
 				updatePhysics();
+				applyDrawDistance();
 				accumulator -= fixedTimeStep;
 				//t += fixedTimeStep;
 				applyState = true;
@@ -1795,6 +1893,20 @@ private:
 				std::this_thread::sleep_for(fixedTimeStep - accumulator);
 			}
 		}
+	}
+
+	void applyDrawDistance() {
+		if(true) { //replace with a config setting
+			if(getPlayerChunk() != playerChunk) {
+				//Use a set to find the load and unload vector of chunks
+
+				playerChunk = getPlayerChunk();
+			}
+		}
+	}
+
+	std::array<int, 3> getPlayerChunk() {
+
 	}
 
 	void updatePhysics(){
@@ -1899,11 +2011,19 @@ private:
 		while (!glfwWindowShouldClose(window)) {
 			if (renderState == 0 && stateUpdate0 == true) {
 				std::unique_lock<std::mutex> lock(stateMutex0);
+				loadChunks(state0.loadChunks);
+				unloadChunks(state0.unloadChunks);
+				state0.loadChunks.clear();
+				state0.unloadChunks.clear();
 				drawFrame(state0);
 				stateUpdate0 = false;
 				renderState = 1;
 			} else if (renderState == 1 && stateUpdate1 == true) {
 				std::unique_lock<std::mutex> lock(stateMutex1);
+				loadChunks(state1.loadChunks);
+				unloadChunks(state1.unloadChunks);
+				state1.loadChunks.clear();
+				state1.unloadChunks.clear();
 				drawFrame(state1);
 				stateUpdate1 = false;
 				renderState = 0;
