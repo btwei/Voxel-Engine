@@ -255,15 +255,9 @@ private:
 	float pitch;
 	glm::vec3 velocity;
 	glm::vec3 position;
-<<<<<<< HEAD
-	glm::vec3 forward;
-	glm::vec3 right;
-	std::array<int, 3> playerChunk;
-=======
 	glm::vec3 forward = glm::vec3(1.0f, 0.0f, 0.0f);
 	glm::vec3 right = glm::vec3(0.0f, 0.0f, 1.0f);
-	
->>>>>>> 7454b033d1dfaaa64c46249811a0983a96a08446
+	std::array<int, 3> playerChunk;
 
 	void initWindow() {
 		glfwInit();
