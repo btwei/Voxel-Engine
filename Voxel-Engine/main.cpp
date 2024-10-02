@@ -32,6 +32,7 @@
 
 // Config Settings
 // TODO: move config to a separate config.h file
+#include "config.h"
 
 #define CHUNK_SIZE 32
 #define CHUNK_AREA CHUNK_SIZE*CHUNK_SIZE
@@ -50,14 +51,6 @@ const int MAX_FRAMES_IN_FLIGHT = 2;
 const auto fixedTimeStep = std::chrono::duration<double>( 1.0f / 60.0f);
 
 bool noClip = false;
-
-enum CONTROL_SCHEME{
-	DEFAULT,
-	NOCLIP,
-	UNMANAGED
-};
-
-enum CONTROL_SCHEME playerBehaviour = DEFAULT;
 
 // End Config
 
@@ -257,14 +250,20 @@ private:
 	int renderState = 0;
 	bool stateUpdate0 = false;
 	bool stateUpdate1 = false;
-	float lastX = 0, lastY = 0;
+	double lastX = 0, lastY = 0;
 	float yaw;
 	float pitch;
 	glm::vec3 velocity;
 	glm::vec3 position;
+<<<<<<< HEAD
 	glm::vec3 forward;
 	glm::vec3 right;
 	std::array<int, 3> playerChunk;
+=======
+	glm::vec3 forward = glm::vec3(1.0f, 0.0f, 0.0f);
+	glm::vec3 right = glm::vec3(0.0f, 0.0f, 1.0f);
+	
+>>>>>>> 7454b033d1dfaaa64c46249811a0983a96a08446
 
 	void initWindow() {
 		glfwInit();
@@ -299,8 +298,8 @@ private:
 			app->first = false;
 		}
 
-		float dx = app->lastX - xpos;
-		float dy = ypos - app->lastY;
+		double dx = app->lastX - xpos;
+		double dy = ypos - app->lastY;
 
 		app->lastX = xpos;
 		app->lastY = ypos;
@@ -1309,11 +1308,11 @@ private:
 	void createTextureSampler() {
 		VkSamplerCreateInfo samplerInfo{};
 		samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-		samplerInfo.magFilter = VK_FILTER_LINEAR;
-		samplerInfo.minFilter = VK_FILTER_LINEAR;
-		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+		samplerInfo.magFilter = VK_FILTER_NEAREST;
+		samplerInfo.minFilter = VK_FILTER_NEAREST;
+		samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 		samplerInfo.anisotropyEnable = VK_TRUE;
 		
 		VkPhysicalDeviceProperties properties{};
@@ -1324,7 +1323,7 @@ private:
 		samplerInfo.unnormalizedCoordinates = VK_FALSE;
 		samplerInfo.compareEnable = VK_FALSE;
 		samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST; // TODO: Enable Mipmapping with texture atlases (or swap to texture arrays)
+		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR; // TODO: Enable Mipmapping with texture atlases (or swap to texture arrays)
 		samplerInfo.mipLodBias = 0.0f;
 		samplerInfo.minLod = 0.0f;
 		samplerInfo.maxLod = 0.0f;
@@ -1551,7 +1550,7 @@ private:
 				//Check neighboring voxels for isActive, minding edge cases
 				//3 cases to draw top face: above voxel is empty, above chunk is empty, above voxel in above chunk is empty
 				//+y face (top)
-				if (y == 0 && !chunks.contains(std::array<int, 3>{coords[0], coords[1]-1, coords[2]}) || y == 0 && chunks[std::array<int, 3>{coords[0], coords[1] - 1, coords[2]}][voxelCoordToI(x,CHUNK_SIZE-1,z)].isActive == false || chunks[coords][voxelCoordToI(x, y-1, z)].isActive == false) {
+				if (y == 0 && !chunks.contains(std::array<int, 3>{coords[0], coords[1]-1, coords[2]}) || y == 0 && chunks[std::array<int, 3>{coords[0], coords[1] - 1, coords[2]}][voxelCoordToI(x,CHUNK_SIZE-1,z)].isActive == false || y != 0 && chunks[coords][voxelCoordToI(x, y-1, z)].isActive == false) {
 					vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {uv1} });
 					vertices.push_back({ {x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {uv2} });
 					vertices.push_back({ {x, y, z + 1.0f},            {0.0f, 0.0f, 1.0f}, {uv3} });
@@ -1562,7 +1561,7 @@ private:
 				}
 
 				//repeat for -y face
-				if (y == CHUNK_SIZE-1 && !chunks.contains(std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}) || y == CHUNK_SIZE-1 && chunks[std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}][voxelCoordToI(x, 0, z)].isActive == false || chunks[coords][voxelCoordToI(x, y + 1, z)].isActive == false) {
+				if ((y == CHUNK_SIZE-1 && !chunks.contains(std::array<int, 3>{coords[0], coords[1] + 1, coords[2]})) || (y == CHUNK_SIZE-1 && chunks[std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}][voxelCoordToI(x, 0, z)].isActive == false) || (y != CHUNK_SIZE-1 && chunks[coords][voxelCoordToI(x, y + 1, z)].isActive == false)) {
 					vertices.push_back({ {x, y + 1.0f, z},                   {0.0f, 1.0f, 0.0f}, {uv1} });
 					vertices.push_back({ {x + 1.0f, y + 1.0f, z + 1.0f},     {1.0f, 1.0f, 1.0f}, {uv2} });
 					vertices.push_back({ {x + 1.0f, y + 1.0f, z},            {1.0f, 1.0f, 0.0f}, {uv3} });
@@ -1573,7 +1572,7 @@ private:
 				}
 
 				//repeat for +x face
-				if (x == CHUNK_SIZE-1 && !chunks.contains(std::array<int, 3>{coords[0] + 1, coords[1], coords[2]}) || x == CHUNK_SIZE - 1 && chunks[std::array<int, 3>{coords[0] + 1, coords[1], coords[2]}][voxelCoordToI(0, y, z)].isActive == false || chunks[coords][voxelCoordToI(x + 1, y, z)].isActive == false) {
+				if ((x == CHUNK_SIZE-1 && !chunks.contains(std::array<int, 3>{coords[0] + 1, coords[1], coords[2]})) || (x == CHUNK_SIZE - 1 && chunks[std::array<int, 3>{coords[0] + 1, coords[1], coords[2]}][voxelCoordToI(0, y, z)].isActive == false) || (x != CHUNK_SIZE-1 && chunks[coords][voxelCoordToI(x + 1, y, z)].isActive == false)) {
 					vertices.push_back({ {x + 1.0f, y, z + 1.0f},            {1.0f, 0.0f, 1.0f}, {uv1} });
 					vertices.push_back({ {x + 1.0f, y, z},                   {1.0f, 0.0f, 0.0f}, {uv2} });
 					vertices.push_back({ {x + 1.0f, y + 1.0f, z + 1.0f},     {1.0f, 1.0f, 1.0f}, {uv3} });
@@ -1584,7 +1583,7 @@ private:
 				}
 
 				//repeat for -x face
-				if (x == 0 && !chunks.contains(std::array<int, 3>{coords[0] - 1, coords[1], coords[2]}) || x == 0 && chunks[std::array<int, 3>{coords[0] - 1, coords[1], coords[2]}][voxelCoordToI(CHUNK_SIZE-1, y, z)].isActive == false || chunks[coords][voxelCoordToI(x - 1, y, z)].isActive == false) {
+				if ((x == 0 && !chunks.contains(std::array<int, 3>{coords[0] - 1, coords[1], coords[2]})) || (x == 0 && !chunks[std::array<int, 3>{coords[0] - 1, coords[1], coords[2]}][voxelCoordToI(CHUNK_SIZE-1, y, z)].isActive) || (x != 0 && chunks[coords][voxelCoordToI(x - 1, y, z)].isActive == false)) {
 					vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {uv1} });
 					vertices.push_back({ {x, y, z + 1.0f},            {0.0f, 0.0f, 1.0f}, {uv2} });
 					vertices.push_back({ {x, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {uv3} });
@@ -1595,7 +1594,7 @@ private:
 				}
 
 				//repeat for +z face
-				if (z == CHUNK_SIZE - 1 && !chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] + 1}) || z == CHUNK_SIZE - 1 && chunks[std::array<int, 3>{coords[0], coords[1], coords[2] + 1}][voxelCoordToI(x, y, 0)].isActive == false || chunks[coords][voxelCoordToI(x, y, z + 1)].isActive == false) {
+				if (z == CHUNK_SIZE - 1 && !chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] + 1}) || z == CHUNK_SIZE - 1 && !chunks[std::array<int, 3>{coords[0], coords[1], coords[2] + 1}][voxelCoordToI(x, y, 0)].isActive || z != CHUNK_SIZE - 1 && chunks[coords][voxelCoordToI(x, y, z + 1)].isActive == false) {
 					vertices.push_back({{x, y + 1.0f, z + 1.0f},            {0.0f, 1.0f, 1.0f}, {uv1} });
 					vertices.push_back({{x, y, z + 1.0f},                   {0.0f, 0.0f, 1.0f}, {uv2} });
 					vertices.push_back({{x + 1.0f, y + 1.0f, z + 1.0f},     {1.0f, 1.0f, 1.0f}, {uv3} });
@@ -1606,7 +1605,7 @@ private:
 				}
 
 				//repeat for -z face
-				if (z == 0 && !chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] - 1}) || z == 0 && chunks[std::array<int, 3>{coords[0], coords[1], coords[2] - 1}][voxelCoordToI(x, y, CHUNK_SIZE-1)].isActive == false || chunks[coords][voxelCoordToI(x, y, z - 1)].isActive == false) {
+				if (z == 0 && !chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] - 1}) || z == 0 && chunks[std::array<int, 3>{coords[0], coords[1], coords[2] - 1}][voxelCoordToI(x, y, CHUNK_SIZE-1)].isActive == false || z != 0 && chunks[coords][voxelCoordToI(x, y, z - 1)].isActive == false) {
 					vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {uv1} });
 					vertices.push_back({ {x, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {uv2} });
 					vertices.push_back({ {x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {uv3} });
@@ -1910,64 +1909,23 @@ private:
 	}
 
 	void updatePhysics(){
-		if(true){ // TODO: if default controls
+		if(playerController == DEFAULT){ // TODO: if default controls
 			float yComponent = velocity.y;
 			float ws = glfwGetKey(window, GLFW_KEY_W) - glfwGetKey(window, GLFW_KEY_S);
 			float ad = glfwGetKey(window, GLFW_KEY_D) - glfwGetKey(window, GLFW_KEY_A);
-			velocity = (ws * glm::normalize(forward) + ad * right) * (float)PLAYER_SPEED * (1 + glfwGetKey(window, GLFW_KEY_SHIFT));
+			velocity = (ws * glm::normalize(forward) + ad * right) * (float)PLAYER_SPEED * (1.0f + glfwGetKey(window, GLFW_KEY_LEFT_SHIFT));
 			velocity.y = yComponent + GRAVITY;
 
-			movePlayerAndCollide());
+			movePlayerAndCollide();
 
-		} else if(false) { // NO CLIP controls
+		} else if(playerController == NOCLIP) { // NO CLIP controls
 			float ws = glfwGetKey(window, GLFW_KEY_W) - glfwGetKey(window, GLFW_KEY_S);
 			float ad = glfwGetKey(window, GLFW_KEY_D) - glfwGetKey(window, GLFW_KEY_A);
-			velocity = (ws * forward + ad * right) * (float)PLAYER_SPEED;
+			velocity = (ws * glm::normalize(forward) + ad * right) * (float)PLAYER_SPEED * (1.0f + glfwGetKey(window, GLFW_KEY_LEFT_SHIFT));
+
+			position += static_cast<float>(fixedTimeStep.count()) * velocity;
 		} else {
-			
-		}
-	}
-
-	void movePlayerAndCollide() {
-		position.x += static_cast<float>(fixedTimeStep.count()) * velocity.x;
-		std::vector<WorldVoxel> voxelOverlap = fetchVoxelsAtPlayer();
-
-		for(WorldVoxel wv : voxelOverlapX) {
-			if(wv.isActive == true){
-				if(velocity.x > 0 && worldVoxelToWorldPos(wv).x < position.x){
-					position.x = worldVoxelToWorldPos(wv).x;
-				} else if (worldVoxelToWorldPos(wv).x + 1 > position.x) {
-					position.x = worldVoxelToWorldPos(wv).x;
-				}
-			}
-		}
-
-		position.z += static_cast<float>(fixedTimeStep.count()) * velocity.z;
-		voxelOverlapX = fetchVoxelsAtPlayer();
-
-		for(WorldVoxel wv : voxelOverlapX) {
-			if(wv.isActive == true){
-				if(velocity.z > 0 && worldVoxelToWorldPos(wv).z < position.z){
-					position.z = worldVoxelToWorldPos(wv).z;
-				} else if (worldVoxelToWorldPos(wv).z + 1 > position.z) {
-					position.z = worldVoxelToWorldPos(wv).z;
-				}
-			}
-		}
-
-		position.y += static_cast<float>(fixedTimeStep.count()) * velocity.y;
-		voxelOverlap = fetchVoxelsAtPlayer();
-
-		for(WorldVoxel wv : voxelOverlapX) {
-			if(wv.isActive == true){
-				if(velocity.y > 0 && worldVoxelToWorldPos(wv).y < position.y){
-					velocity.y = 0;
-					position.y = worldVoxelToWorldPos(wv).y;
-				} else if (worldVoxelToWorldPos(wv).y + 1 > position.y) {
-					velocity.y = 0;
-					position.y = worldVoxelToWorldPos(wv).y;
-				}
-			}
+			//managed by user
 		}
 	}
 
@@ -1975,15 +1933,62 @@ private:
 		std::array<int, 3> chunkPos;
 		int voxelI;
 		bool isActive;
+	};
+
+	void movePlayerAndCollide() {
+		position.x += static_cast<float>(fixedTimeStep.count()) * velocity.x;
+		std::vector<WorldVoxel> voxelOverlap = fetchVoxelsAtPlayer();
+
+		/*
+		for(const WorldVoxel& wv : voxelOverlap) {
+			if(wv.isActive == true){
+				if(velocity.x > 0 && worldVoxelToWorldPos(wv).x < position.x + 0.5){
+					position.x = worldVoxelToWorldPos(wv).x;
+				} else if (worldVoxelToWorldPos(wv).x + 1 > position.x - 0.5) {
+					position.x = worldVoxelToWorldPos(wv).x;
+				}
+			}
+		}*/
+
+		position.z += static_cast<float>(fixedTimeStep.count()) * velocity.z;
+		voxelOverlap = fetchVoxelsAtPlayer();
+
+		/*
+		for(const WorldVoxel& wv : voxelOverlap) {
+			if(wv.isActive == true){
+				if(velocity.z > 0 && worldVoxelToWorldPos(wv).z < position.z + 0.5){
+					position.z = worldVoxelToWorldPos(wv).z;
+				} else if (worldVoxelToWorldPos(wv).z + 1 > position.z - 0.5) {
+					position.z = worldVoxelToWorldPos(wv).z;
+				}
+			}
+		}*/
+
+		position.y += static_cast<float>(fixedTimeStep.count()) * velocity.y;
+		voxelOverlap = fetchVoxelsAtPlayer();
+
+		bool collide = false;
+		for(const WorldVoxel& wv : voxelOverlap) {
+			if(wv.isActive == true){
+				if(velocity.y > 0 && worldVoxelToWorldPos(wv).y < position.y + PLAYER_HEIGHT){
+					position.y = 0 - PLAYER_HEIGHT;//worldVoxelToWorldPos(wv).y - PLAYER_HEIGHT;
+				} else if (worldVoxelToWorldPos(wv).y + 1 > position.y) {
+					position.y = worldVoxelToWorldPos(wv).y;
+				}
+				collide = true;
+			}
+		}
+		if (collide == true) velocity.y = 0;
 	}
 
 	std::vector<WorldVoxel> fetchVoxelsAtPlayer () {
 		std::vector<WorldVoxel> voxelList;
-		glm::vec3 pos = position - glm::vec3(0.5, 0, 0.5)
+		glm::vec3 pos = position - glm::vec3(0.5, 0, 0.5);
 		for (int x = 0; x < 1; x++){
 			for(int z=0; z < 1; z++) {
-				for (int y=0; y < PLAYER_HEIGHT; y++) {
-					voxelList.push_back(worldPosToWorldVoxel(pos + glm::vex3(x, y, z)));
+				for (float y=0; y < PLAYER_HEIGHT+1; y++){
+					if (y == ceil(PLAYER_HEIGHT)) y = PLAYER_HEIGHT;
+					voxelList.push_back(worldPosToWorldVoxel(pos + glm::vec3(x, y, z)));
 				}
 			}
 		}
@@ -1992,19 +1997,19 @@ private:
 	}
 
 	WorldVoxel worldPosToWorldVoxel (glm::vec3 pos) {
-		if(chunks.contains(std::array<int, 3>{static_cast<int>(pos.x / CHUNK_SIZE), static_cast<int>(pos.y / CHUNK_SIZE), static_cast<int>(pos.z / CHUNK_SIZE)})){
-			if(chunks[std::array<int, 3>{static_cast<int>(pos.x / CHUNK_SIZE), static_cast<int>(pos.y / CHUNK_SIZE), static_cast<int>(pos.z / CHUNK_SIZE)})][voxelCoordToI(int(pos.x) % CHUNK_SIZE,int(pos.y) % CHUNK_SIZE,int(pos.z) % CHUNK_SIZE)].isActive() == true) {
-				return WorldVoxel{std::array<int, 3>{static_cast<int>(pos.x / CHUNK_SIZE), static_cast<int>(pos.y / CHUNK_SIZE), static_cast<int>(pos.z / CHUNK_SIZE)}, voxelCoordToI(int(pos.x) % CHUNK_SIZE,int(pos.y) % CHUNK_SIZE,int(pos.z) % CHUNK_SIZE), true};
+		if(chunks.contains(std::array<int, 3>{static_cast<int>(floor(pos.x / CHUNK_SIZE)), static_cast<int>(floor(pos.y / CHUNK_SIZE)), static_cast<int>(floor(pos.z / CHUNK_SIZE))})){
+			if(chunks[std::array<int, 3>{static_cast<int>(floor(pos.x / CHUNK_SIZE)), static_cast<int>(floor(pos.y / CHUNK_SIZE)), static_cast<int>(floor(pos.z / CHUNK_SIZE))}][voxelCoordToI(int(floor(pos.x)) % CHUNK_SIZE, int(floor(pos.y)) % CHUNK_SIZE, int(floor(pos.z)) % CHUNK_SIZE)].isActive == true) {
+				return WorldVoxel{std::array<int, 3>{static_cast<int>(floor(pos.x / CHUNK_SIZE)), static_cast<int>(floor(pos.y / CHUNK_SIZE)), static_cast<int>(floor(pos.z / CHUNK_SIZE))}, (int)voxelCoordToI(int(floor(pos.x)) % CHUNK_SIZE,int(floor(pos.y)) % CHUNK_SIZE,int(floor(pos.z)) % CHUNK_SIZE), true};
 			}
 		}
-		return WorldVoxel{std::array<int,3>{0, 0, 0}, 0, false};
+		return WorldVoxel{std::array<int,3>{-99, -99, -99}, 0, false};
 	}
 
-	glm::vec3 worldVoxelToWorldPox (WorldVoxel wv) {
+	glm::vec3 worldVoxelToWorldPos (WorldVoxel wv) {
 		int x = wv.voxelI / (CHUNK_SIZE * CHUNK_SIZE);
 		int y = (wv.voxelI / CHUNK_SIZE) % CHUNK_SIZE;
 		int z = wv.voxelI % CHUNK_SIZE;
-		return glm::vec3(chunkPos.x * CHUNK_SIZE + x, chunkPos.y * CHUNK_SIZE + y, chunkPos.z * CHUNK_SIZE + z);
+		return glm::vec3(wv.chunkPos[0] * CHUNK_SIZE + x, wv.chunkPos[1] * CHUNK_SIZE + y, wv.chunkPos[2] * CHUNK_SIZE + z);
 	}
 
 	void renderThread() {
@@ -2220,25 +2225,28 @@ private:
 				chunks[std::array<int, 3>{0, 0, 0}][i] = Voxel(true, BlockType::STONE);
 			}
 		}
+		chunks[std::array<int, 3>{0, 0, 0}][0] = Voxel(false, BlockType::DEFAULT);
 		loadedChunks[std::array<int, 3>{0, 0, 0}] = {};
 
-		//write and load to -1,0,-1
-		chunks[std::array<int, 3>{-1, 0, 0}] = new Voxel[CHUNK_VOL];
+		//write and load to 0, 0, 1
+		chunks[std::array<int, 3>{0, 0, 1}] = new Voxel[CHUNK_VOL];
 		for (size_t i = 0; i < CHUNK_VOL; i++) {
-			int x = i / (CHUNK_SIZE * CHUNK_SIZE);
-			int y = (i / CHUNK_SIZE) % CHUNK_SIZE;
-			int z = i % CHUNK_SIZE;
-			if (y == 0) {
-				if (i % 2 == 0) {
-					chunks[std::array<int, 3>{-1, 0, 0}][i] = Voxel(true, BlockType::SAND);
-				} else {
-					chunks[std::array<int, 3>{-1, 0, 0}][i] = Voxel(true, BlockType::GRASS);
-				}
-			}
+			chunks[std::array<int, 3>{0, 0, 1}][i] = Voxel(true, BlockType::STONE);
 		}
-		loadedChunks[std::array<int, 3>{-1, 0, 0}] = {};
+		loadedChunks[std::array<int, 3>{0, 0, 1}] = {};
 
-		position = glm::vec3(16.0f, 16.0f, 16.0f);
+		//write and load to -1,0,-1
+		generateChunk(std::array<int, 3>{-1, 0, 0});
+		loadedChunks[std::array<int, 3>{-1, 0, 0}] = {};
+		generateChunk(std::array<int, 3>{-2, 0, 0});
+		loadedChunks[std::array<int, 3>{-2, 0, 0}] = {};
+		generateChunk(std::array<int, 3>{1, 0, 0});
+		loadedChunks[std::array<int, 3>{1, 0, 0}] = {};
+		generateChunk(std::array<int, 3>{-1, 0, 1});
+		loadedChunks[std::array<int, 3>{-1, 0, 1}] = {};
+
+		velocity = glm::vec3(0.0f, 0.0f, 0.0f);
+		position = glm::vec3(4.0f, -2.0f, 4.0f);
 	}
 
 	void loadChunk() {
@@ -2246,9 +2254,25 @@ private:
 		//should be done once per chunk in init, then as needed during the update
 	}
 
-	void generateChunk() {
+	void generateChunk(std::array<int, 3> coords) {
 		//logic to apply to uninitialized chunks
-
+		chunks[coords] = new Voxel[CHUNK_VOL];
+		if (coords[1] == 0) {
+			for (size_t i = 0; i < CHUNK_VOL; i++) {
+				int x = i / (CHUNK_SIZE * CHUNK_SIZE);
+				int y = (i / CHUNK_SIZE) % CHUNK_SIZE;
+				int z = i % CHUNK_SIZE;
+				if (y == 0) {
+					chunks[coords][i] = Voxel(true, BlockType::GRASS);
+				} else {
+					chunks[coords][i] = Voxel(true, BlockType::DIRT);
+				}
+			}
+		} else if (coords[1] > 0) {
+			for (size_t i = 0; i < CHUNK_VOL; i++) {
+				chunks[coords][i] = Voxel(true, BlockType::DIRT);
+			}
+		}
 	}
 
 };
