@@ -30,3 +30,6 @@ More to be added soon! I've implemented much more such as multi-threading and fi
 - **Lighting:** Lighting will be handled with a rasterization-based deferred rendering system.
 - **Greedy Meshing:** This is an optimization algorithm to combine faces to reduce this number of triangles.
 - **Release as an API:** I'd like to write an API to let users hook into the engine and add their own functionality; this covers up the engine backend reducing complexity for the average user.
+
+## Acknowledgements
+- my current test textures are a modified version of the **Good Vibes** texture pack by **Acaitart**
