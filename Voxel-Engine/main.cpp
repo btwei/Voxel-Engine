@@ -39,7 +39,7 @@
 #define CHUNK_VOL CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE
 
 #define MOUSE_SENSITIVITY 0.1
-#define PLAYER_SPEED 3
+#define PLAYER_SPEED 10
 #define GRAVITY 1
 #define PLAYER_HEIGHT 1.5
 
@@ -250,6 +250,9 @@ private:
 	glm::vec3 forward = glm::vec3(1.0f, 0.0f, 0.0f);
 	glm::vec3 right = glm::vec3(0.0f, 0.0f, 1.0f);
 	std::array<int, 3> playerChunk;
+
+	std::vector<std::array<int, 3>> updateLoadChunkList;
+	std::vector<std::array<int, 3>> updateUnloadChunkList;
 
 	void initWindow() {
 		glfwInit();
@@ -1496,6 +1499,7 @@ private:
 	}
 
 	void unloadChunks(std::vector<std::array<int, 3>> chunkCoords) {
+		vkQueueWaitIdle(graphicsQueue);
 		for(const std::array<int,3>& coord : chunkCoords){
 			if(loadedChunks.contains(coord)){
 				// Deallocate buffer, remove entry from loadedChunks
@@ -1862,22 +1866,27 @@ private:
 			while(accumulator >= fixedTimeStep){
 				//Update Physics
 				updatePhysics();
-				applyDrawDistance();
 				accumulator -= fixedTimeStep;
 				//t += fixedTimeStep;
 				applyState = true;
 			}
+
+			applyDrawDistance();
+			applyChunkGenerator();
 
 			//Update Shared Game State
 			//TODO: Streamline update states
 			if (updateState == 0 && stateUpdate0 == false && applyState) {
 				std::unique_lock<std::mutex> lock(stateMutex0);
 				glfwPollEvents();
-				//Update Game State
 				state0.playerPitch = glm::vec1(pitch);
 				state0.playerYaw = glm::vec1(yaw);
 				state0.playerPos = position;
-				//Step Physics
+				state0.loadChunks = updateLoadChunkList;
+				state0.unloadChunks = updateUnloadChunkList;
+
+				updateLoadChunkList.clear();
+				updateUnloadChunkList.clear();
 				stateUpdate0 = true;
 				updateState = 1;
 			} else if (updateState == 1 && stateUpdate1 == false && applyState) {
@@ -1887,7 +1896,11 @@ private:
 				state1.playerPitch = glm::vec1(pitch);
 				state1.playerYaw = glm::vec1(yaw);
 				state1.playerPos = position;
-				//Step Physics
+				state1.loadChunks = updateLoadChunkList;
+				state1.unloadChunks = updateUnloadChunkList;
+
+				updateLoadChunkList.clear();
+				updateUnloadChunkList.clear();
 				stateUpdate1 = true;
 				updateState = 0;
 			}
@@ -1901,10 +1914,30 @@ private:
 		}
 	}
 
+	bool firstDrawDistance = true;
+
 	void applyDrawDistance() {
+		if (firstDrawDistance) {
+			playerChunk = getPlayerChunk();
+			firstDrawDistance = false;
+		}
 		if(useViewDistance) {
-			if(getPlayerChunk() != playerChunk) {
+			std::array<int, 3> newPlayerChunk = getPlayerChunk();
+			if(newPlayerChunk != playerChunk) {
 				//Use a set to find the load and unload vector of chunks
+				std::set<std::array<int, 3>> oldChunks;
+				std::set<std::array<int ,3>> newChunks;
+				for (int x = -VIEW_DISTANCE; x < VIEW_DISTANCE + 1; x++) {
+					for (int y = -VIEW_DISTANCE; y < VIEW_DISTANCE + 1; y++) {
+						for (int z = -VIEW_DISTANCE; z < VIEW_DISTANCE + 1; z++) {
+							oldChunks.insert(std::array<int, 3>{playerChunk[0]+x,playerChunk[1]+y,playerChunk[2]+z});
+							newChunks.insert(std::array<int, 3>{newPlayerChunk[0]+x,newPlayerChunk[1]+y,newPlayerChunk[2]+z});
+						}
+					}
+				}
+
+				std::set_difference(newChunks.begin(), newChunks.end(), oldChunks.begin(), oldChunks.end(), std::back_inserter(updateLoadChunkList));
+				std::set_difference(oldChunks.begin(), oldChunks.end(), newChunks.begin(), newChunks.end(), std::back_inserter(updateUnloadChunkList));
 
 				playerChunk = getPlayerChunk();
 			}
@@ -1912,7 +1945,17 @@ private:
 	}
 
 	std::array<int, 3> getPlayerChunk() {
-		return std::array<int, 3>{};
+		return std::array<int, 3>{static_cast<int>(floor(position.x / CHUNK_SIZE)), static_cast<int>(floor(position.y / CHUNK_SIZE)), static_cast<int>(floor(position.z / CHUNK_SIZE))};
+	}
+
+	void applyChunkGenerator() {
+		if (generateChunks) {
+			for (const auto& coord : updateLoadChunkList) {
+				if (!chunks.contains(coord)) {
+					generateChunk(coord);
+				}
+			}
+		}
 	}
 
 	void updatePhysics(){
@@ -2023,8 +2066,8 @@ private:
 		while (!glfwWindowShouldClose(window)) {
 			if (renderState == 0 && stateUpdate0 == true) {
 				std::unique_lock<std::mutex> lock(stateMutex0);
-				loadChunks(state0.loadChunks);
 				unloadChunks(state0.unloadChunks);
+				loadChunks(state0.loadChunks);
 				state0.loadChunks.clear();
 				state0.unloadChunks.clear();
 				drawFrame(state0);
@@ -2032,8 +2075,8 @@ private:
 				renderState = 1;
 			} else if (renderState == 1 && stateUpdate1 == true) {
 				std::unique_lock<std::mutex> lock(stateMutex1);
-				loadChunks(state1.loadChunks);
 				unloadChunks(state1.unloadChunks);
+				loadChunks(state1.loadChunks);
 				state1.loadChunks.clear();
 				state1.unloadChunks.clear();
 				drawFrame(state1);
