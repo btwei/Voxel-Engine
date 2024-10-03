@@ -38,7 +38,6 @@
 #define CHUNK_AREA CHUNK_SIZE*CHUNK_SIZE
 #define CHUNK_VOL CHUNK_SIZE*CHUNK_SIZE*CHUNK_SIZE
 
-#define VIEW_DISTANCE 2
 #define MOUSE_SENSITIVITY 0.1
 #define PLAYER_SPEED 3
 #define GRAVITY 1
@@ -143,17 +142,9 @@ struct UniformBufferObject {
 	glm::mat4 proj;
 };
 
-enum class BlockType : short {
-	DEFAULT,
-	GRASS,
-	DIRT,
-	STONE,
-	SAND
-};
-
 struct Voxel {
 	bool isActive = false;
-	BlockType blockType = BlockType::DEFAULT;
+	short blockId;
 };
 
 struct Array3Hash {
@@ -238,6 +229,7 @@ private:
 	std::vector<void*> uniformBuffersMapped;
 
 	VmaAllocator allocator;
+	int texWidth, texHeight, texChannels;
 
 	uint32_t currentFrame = 0;
 	bool firstUpdate = true;
@@ -1127,7 +1119,6 @@ private:
 	}
 
 	void createTextureImage() {
-		int texWidth, texHeight, texChannels;
 		stbi_uc* pixels = stbi_load("textures/atlas.jpg", &texWidth, &texHeight, &texChannels, STBI_rgb_alpha);
 		VkDeviceSize imageSize = texWidth * texHeight * 4;
 
@@ -1508,8 +1499,10 @@ private:
 		for(const std::array<int,3>& coord : chunkCoords){
 			if(loadedChunks.contains(coord)){
 				// Deallocate buffer, remove entry from loadedChunks
-				vmaDestroyBuffer(allocator, loadedChunks[coord].indexBuffer, loadedChunks[coord].indexAllocation);
-				vmaDestroyBuffer(allocator, loadedChunks[coord].vertexBuffer, loadedChunks[coord].vertexAllocation);
+				if (loadedChunks[coord].indexCount != 0) {
+					vmaDestroyBuffer(allocator, loadedChunks[coord].indexBuffer, loadedChunks[coord].indexAllocation);
+					vmaDestroyBuffer(allocator, loadedChunks[coord].vertexBuffer, loadedChunks[coord].vertexAllocation);
+				}
 				loadedChunks.erase(coord);
 			}
 		}
@@ -1533,13 +1526,13 @@ private:
 				int z = i % CHUNK_SIZE;
 
 				//Get uv coordinates in un-normalized range
-				int u = (static_cast<int>(chunks[coords][i].blockType) % 32) * 32;
-				int v = (static_cast<int>(chunks[coords][i].blockType) / 32) * 32;
+				int u = (chunks[coords][i].blockId % (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f*(float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2*TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) % (TEXTURE_DIM + 2*TEXTURE_PADDING)) * 32;
+				int v = (chunks[coords][i].blockId / (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) / 32) * 32;
 
-				glm::vec2 uv1 = glm::vec2((u / 1024.0f) + 0.003f, (v / 1024.0f) + 0.003f);
-				glm::vec2 uv2 = glm::vec2(((u + 32) / 1024.0f) - 0.003f, (v / 1024.0f) + 0.003f);
-				glm::vec2 uv3 = glm::vec2((u / 1024.0f) + 0.003f, ((v + 32) / 1024.0f) - 0.003f);
-				glm::vec2 uv4 = glm::vec2(((u + 32) / 1024.0f) - 0.003f, ((v + 32) / 1024.0f) - 0.003f);
+				glm::vec2 uv1 = glm::vec2((u / (float)texWidth) + 0.000f, (v / (float)texHeight) + 0.000f);
+				glm::vec2 uv2 = glm::vec2(((u + TEXTURE_DIM) / (float)texWidth) - 0.000f, (v / (float)texHeight) + 0.000f);
+				glm::vec2 uv3 = glm::vec2((u / (float)texWidth) + 0.000f, ((v + TEXTURE_DIM) / (float)texHeight) - 0.000f);
+				glm::vec2 uv4 = glm::vec2(((u + TEXTURE_DIM) / (float)texWidth) - 0.000f, ((v + TEXTURE_DIM) / (float)texHeight) - 0.000f);
 
 				//Check neighboring voxels for isActive, minding edge cases
 				//3 cases to draw top face: above voxel is empty, above chunk is empty, above voxel in above chunk is empty
@@ -1554,15 +1547,14 @@ private:
 					idx += 4;
 				}
 
-				//repeat for -y face
-				if ((y == CHUNK_SIZE-1 && !chunks.contains(std::array<int, 3>{coords[0], coords[1] + 1, coords[2]})) || (y == CHUNK_SIZE-1 && chunks[std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}][voxelCoordToI(x, 0, z)].isActive == false) || (y != CHUNK_SIZE-1 && chunks[coords][voxelCoordToI(x, y + 1, z)].isActive == false)) {
-					vertices.push_back({ {x, y + 1.0f, z},                   {0.0f, 1.0f, 0.0f}, {uv1} });
-					vertices.push_back({ {x + 1.0f, y + 1.0f, z + 1.0f},     {1.0f, 1.0f, 1.0f}, {uv2} });
-					vertices.push_back({ {x + 1.0f, y + 1.0f, z},            {1.0f, 1.0f, 0.0f}, {uv3} });
-					vertices.push_back({ {x, y + 1.0f, z + 1.0f},            {0.0f, 1.0f, 1.0f}, {uv4} });
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 2) });
-					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 0), static_cast<uint16_t>(idx + 3) });
-					idx += 4;
+				if (block3faced.contains(chunks[coords][i].blockId)) {
+					u = ((chunks[coords][i].blockId + 1) % (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) % (TEXTURE_DIM + 2*TEXTURE_PADDING)) * 32;
+					v = ((chunks[coords][i].blockId + 1) / (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) / 32) * 32;
+
+					uv1 = glm::vec2((u / (float)texWidth) + 0.000f, (v / (float)texHeight) + 0.000f);
+					uv2 = glm::vec2(((u + TEXTURE_DIM) / (float)texWidth) - 0.000f, (v / (float)texHeight) + 0.000f);
+					uv3 = glm::vec2((u / (float)texWidth) + 0.000f, ((v + TEXTURE_DIM) / (float)texHeight) - 0.000f);
+					uv4 = glm::vec2(((u + TEXTURE_DIM) / (float)texWidth) - 0.000f, ((v + TEXTURE_DIM) / (float)texHeight) - 0.000f);
 				}
 
 				//repeat for +x face
@@ -1589,10 +1581,10 @@ private:
 
 				//repeat for +z face
 				if (z == CHUNK_SIZE - 1 && !chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] + 1}) || z == CHUNK_SIZE - 1 && !chunks[std::array<int, 3>{coords[0], coords[1], coords[2] + 1}][voxelCoordToI(x, y, 0)].isActive || z != CHUNK_SIZE - 1 && chunks[coords][voxelCoordToI(x, y, z + 1)].isActive == false) {
-					vertices.push_back({{x, y + 1.0f, z + 1.0f},            {0.0f, 1.0f, 1.0f}, {uv1} });
+					vertices.push_back({{x, y + 1.0f, z + 1.0f},            {0.0f, 1.0f, 1.0f}, {uv4} });
 					vertices.push_back({{x, y, z + 1.0f},                   {0.0f, 0.0f, 1.0f}, {uv2} });
 					vertices.push_back({{x + 1.0f, y + 1.0f, z + 1.0f},     {1.0f, 1.0f, 1.0f}, {uv3} });
-					vertices.push_back({{x + 1.0f, y, z + 1.0f},            {1.0f, 0.0f, 1.0f}, {uv4} });
+					vertices.push_back({{x + 1.0f, y, z + 1.0f},            {1.0f, 0.0f, 1.0f}, {uv1} });
 					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 2) });
 					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 2), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 3) });
 					idx += 4;
@@ -1601,11 +1593,32 @@ private:
 				//repeat for -z face
 				if (z == 0 && !chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] - 1}) || z == 0 && chunks[std::array<int, 3>{coords[0], coords[1], coords[2] - 1}][voxelCoordToI(x, y, CHUNK_SIZE-1)].isActive == false || z != 0 && chunks[coords][voxelCoordToI(x, y, z - 1)].isActive == false) {
 					vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {uv1} });
-					vertices.push_back({ {x, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {uv2} });
-					vertices.push_back({ {x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {uv3} });
+					vertices.push_back({ {x, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {uv3} });
+					vertices.push_back({ {x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {uv2} });
 					vertices.push_back({ {x + 1.0f, y + 1.0f, z},     {1.0f, 1.0f, 0.0f}, {uv4} });
 					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 2) });
 					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 2), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 3) });
+					idx += 4;
+				}
+
+				if (block3faced.contains(chunks[coords][i].blockId)) {
+					u = ((chunks[coords][i].blockId + 2) % (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) % (TEXTURE_DIM + 2*TEXTURE_PADDING)) * 32;
+					v = ((chunks[coords][i].blockId + 2) / (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) / 32) * 32;
+
+					uv1 = glm::vec2((u / (float)texWidth) + 0.000f, (v / (float)texHeight) + 0.000f);
+					uv2 = glm::vec2(((u + TEXTURE_DIM) / (float)texWidth) - 0.000f, (v / (float)texHeight) + 0.000f);
+					uv3 = glm::vec2((u / (float)texWidth) + 0.000f, ((v + TEXTURE_DIM) / (float)texHeight) - 0.000f);
+					uv4 = glm::vec2(((u + TEXTURE_DIM) / (float)texWidth) - 0.000f, ((v + TEXTURE_DIM) / (float)texHeight) - 0.000f);
+				}
+
+				//repeat for -y face
+				if ((y == CHUNK_SIZE - 1 && !chunks.contains(std::array<int, 3>{coords[0], coords[1] + 1, coords[2]})) || (y == CHUNK_SIZE - 1 && chunks[std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}][voxelCoordToI(x, 0, z)].isActive == false) || (y != CHUNK_SIZE - 1 && chunks[coords][voxelCoordToI(x, y + 1, z)].isActive == false)) {
+					vertices.push_back({ {x, y + 1.0f, z},                   {0.0f, 1.0f, 0.0f}, {uv1} });
+					vertices.push_back({ {x + 1.0f, y + 1.0f, z + 1.0f},     {1.0f, 1.0f, 1.0f}, {uv2} });
+					vertices.push_back({ {x + 1.0f, y + 1.0f, z},            {1.0f, 1.0f, 0.0f}, {uv3} });
+					vertices.push_back({ {x, y + 1.0f, z + 1.0f},            {0.0f, 1.0f, 1.0f}, {uv4} });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx), static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 2) });
+					indices.insert(indices.end(), { static_cast<uint16_t>(idx + 1), static_cast<uint16_t>(idx + 0), static_cast<uint16_t>(idx + 3) });
 					idx += 4;
 				}
 			}
@@ -1771,7 +1784,7 @@ private:
 
 		//Draw every loaded chunk
 		for (const auto& [coords, chunkMem] : loadedChunks) {
-			//TO ADD: ignore empty chunks (they have no associated buffers!)
+			if (chunkMem.indexCount == 0) continue;
 
 			//Set Push Constants to model matrix offset coords (only 16 bytes!)
 			float data[4] = { float(coords[0]*CHUNK_SIZE), float(coords[1]*CHUNK_SIZE), float(coords[2]*CHUNK_SIZE), 0.0f };
@@ -1889,7 +1902,7 @@ private:
 	}
 
 	void applyDrawDistance() {
-		if(true) { //replace with a config setting
+		if(useViewDistance) {
 			if(getPlayerChunk() != playerChunk) {
 				//Use a set to find the load and unload vector of chunks
 
@@ -1899,7 +1912,7 @@ private:
 	}
 
 	std::array<int, 3> getPlayerChunk() {
-
+		return std::array<int, 3>{};
 	}
 
 	void updatePhysics(){
@@ -2114,6 +2127,7 @@ private:
 		vkDestroyDescriptorSetLayout(device, descriptorSetLayout, nullptr);
 
 		for (auto& [coords, chunk] : loadedChunks) {
+			if (chunk.indexCount == 0) continue;
 			vmaDestroyBuffer(allocator, chunk.indexBuffer, chunk.indexAllocation);
 			vmaDestroyBuffer(allocator, chunk.vertexBuffer, chunk.vertexAllocation);
 		}
@@ -2213,19 +2227,19 @@ private:
 			int y = (i / CHUNK_SIZE) % CHUNK_SIZE;
 			int z = i % CHUNK_SIZE;
 			if (y < 12) {
-				chunks[std::array<int, 3>{0, 0, 0}][i] = Voxel(true, BlockType::DIRT);
+				chunks[std::array<int, 3>{0, 0, 0}][i] = Voxel(true, 3);
 			}
 			else {
-				chunks[std::array<int, 3>{0, 0, 0}][i] = Voxel(true, BlockType::STONE);
+				chunks[std::array<int, 3>{0, 0, 0}][i] = Voxel(true, 4);
 			}
 		}
-		chunks[std::array<int, 3>{0, 0, 0}][0] = Voxel(false, BlockType::DEFAULT);
+		chunks[std::array<int, 3>{0, 0, 0}][0] = Voxel(false, 0);
 		loadedChunks[std::array<int, 3>{0, 0, 0}] = {};
 
 		//write and load to 0, 0, 1
 		chunks[std::array<int, 3>{0, 0, 1}] = new Voxel[CHUNK_VOL];
 		for (size_t i = 0; i < CHUNK_VOL; i++) {
-			chunks[std::array<int, 3>{0, 0, 1}][i] = Voxel(true, BlockType::STONE);
+			chunks[std::array<int, 3>{0, 0, 1}][i] = Voxel(true, 4);
 		}
 		loadedChunks[std::array<int, 3>{0, 0, 1}] = {};
 
@@ -2257,14 +2271,14 @@ private:
 				int y = (i / CHUNK_SIZE) % CHUNK_SIZE;
 				int z = i % CHUNK_SIZE;
 				if (y == 0) {
-					chunks[coords][i] = Voxel(true, BlockType::GRASS);
+					chunks[coords][i] = Voxel(true, 1);
 				} else {
-					chunks[coords][i] = Voxel(true, BlockType::DIRT);
+					chunks[coords][i] = Voxel(true, 3);
 				}
 			}
 		} else if (coords[1] > 0) {
 			for (size_t i = 0; i < CHUNK_VOL; i++) {
-				chunks[coords][i] = Voxel(true, BlockType::DIRT);
+				chunks[coords][i] = Voxel(true, 3);
 			}
 		}
 	}
