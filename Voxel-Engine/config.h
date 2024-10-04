@@ -10,12 +10,12 @@ enum mode {
 enum mode playerController = NOCLIP;
 
 /* If true, then uninitialized chunks are initialized according to the generateChunk function */
-bool generateChunks = true;
+bool generateChunks = false;
 
 /* If true, then chunks will automatically be loaded and unloaded based on view distance */
 /* VIEW_DISTANCE is the number of chunks away from the player that are loaded */
 bool useViewDistance = true;
-const int VIEW_DISTANCE = 2;
+const int VIEW_DISTANCE = 3;
 
 /* TEXTURE ATLAS */
 /* All block textures should be padded by at least 1 px of repeated edge to prevent texture bleeding */

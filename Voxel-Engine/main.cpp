@@ -1512,7 +1512,17 @@ private:
 		}
 	}
 
+	struct mesh {
+		std::vector<Vertex> vertices;
+		std::vector<uint16_t> indices;
+	};
+
+	//std::unordered_map< , mesh> chunkCache;
+
 	void constructChunk(std::array<int, 3> coords, std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
+
+		auto start_time = std::chrono::high_resolution_clock::now();
+
 		//First query our chunks to see if it exists
 		if (chunks.contains(coords) == false) {
 			return;
@@ -1520,18 +1530,26 @@ private:
 
 		uint16_t idx = 0; //Index for new vertices
 		
+		Voxel* chunk = chunks[coords];
+		Voxel* chunkYP = chunks.contains(std::array<int, 3>{coords[0], coords[1] - 1, coords[2]}) ? chunks[std::array<int, 3>{coords[0], coords[1] - 1, coords[2]}] : nullptr;
+		Voxel* chunkXP = chunks.contains(std::array<int, 3>{coords[0] + 1, coords[1], coords[2]}) ? chunks[std::array<int, 3>{coords[0] + 1, coords[1], coords[2]}] : nullptr;
+		Voxel* chunkXN = chunks.contains(std::array<int, 3>{coords[0] - 1, coords[1], coords[2]}) ? chunks[std::array<int, 3>{coords[0] - 1, coords[1], coords[2]}] : nullptr;
+		Voxel* chunkZP = chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] + 1}) ? chunks[std::array<int, 3>{coords[0], coords[1], coords[2] + 1}] : nullptr;
+		Voxel* chunkZN = chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] - 1}) ? chunks[std::array<int, 3>{coords[0], coords[1], coords[2] - 1}] : nullptr;
+		Voxel* chunkYN = chunks.contains(std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}) ? chunks[std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}] : nullptr;
+		
 		//Possibly in the future I could unify my faces, which reduces the vertex count, but this is not usually possible if the block types are different, so additional logic would be necessary
 		//std::unordered_map<std::array<int, 3>, uint16_t, Array3Hash> vert_idx_map;
 
 		for (size_t i = 0; i < CHUNK_VOL; i++) {
-			if (chunks[coords][i].isActive == true) {
+			if (chunk[i].isActive == true) {
 				int x = i / (CHUNK_SIZE * CHUNK_SIZE);
 				int y = (i / CHUNK_SIZE) % CHUNK_SIZE;
 				int z = i % CHUNK_SIZE;
 
 				//Get uv coordinates in un-normalized range
-				int u = (chunks[coords][i].blockId % (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f*(float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2*TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) % (TEXTURE_DIM + 2*TEXTURE_PADDING)) * 32;
-				int v = (chunks[coords][i].blockId / (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) / 32) * 32;
+				int u = (chunk[i].blockId % (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f*(float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2*TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) % (TEXTURE_DIM + 2*TEXTURE_PADDING)) * 32;
+				int v = (chunk[i].blockId / (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) / 32) * 32;
 
 				glm::vec2 uv1 = glm::vec2((u / (float)texWidth) + 0.000f, (v / (float)texHeight) + 0.000f);
 				glm::vec2 uv2 = glm::vec2(((u + TEXTURE_DIM) / (float)texWidth) - 0.000f, (v / (float)texHeight) + 0.000f);
@@ -1541,7 +1559,7 @@ private:
 				//Check neighboring voxels for isActive, minding edge cases
 				//3 cases to draw top face: above voxel is empty, above chunk is empty, above voxel in above chunk is empty
 				//+y face (top)
-				if (y == 0 && !chunks.contains(std::array<int, 3>{coords[0], coords[1]-1, coords[2]}) || y == 0 && chunks[std::array<int, 3>{coords[0], coords[1] - 1, coords[2]}][voxelCoordToI(x,CHUNK_SIZE-1,z)].isActive == false || y != 0 && chunks[coords][voxelCoordToI(x, y-1, z)].isActive == false) {
+				if (y == 0 && !chunkYP || y == 0 && chunkYP[voxelCoordToI(x,CHUNK_SIZE-1,z)].isActive == false || y != 0 && chunk[voxelCoordToI(x, y-1, z)].isActive == false) {
 					vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {uv1} });
 					vertices.push_back({ {x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {uv2} });
 					vertices.push_back({ {x, y, z + 1.0f},            {0.0f, 0.0f, 1.0f}, {uv3} });
@@ -1551,9 +1569,10 @@ private:
 					idx += 4;
 				}
 
-				if (block3faced.contains(chunks[coords][i].blockId)) {
-					u = ((chunks[coords][i].blockId + 1) % (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) % (TEXTURE_DIM + 2*TEXTURE_PADDING)) * 32;
-					v = ((chunks[coords][i].blockId + 1) / (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) / 32) * 32;
+				//Handle 3 faced blocks (top-side-bottom)
+				if (block3faced.contains(static_cast<int>(chunk[i].blockId))) {
+					u = ((chunk[i].blockId + 1) % (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) % (TEXTURE_DIM + 2*TEXTURE_PADDING)) * 32;
+					v = ((chunk[i].blockId + 1) / (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) / 32) * 32;
 
 					uv1 = glm::vec2((u / (float)texWidth) + 0.000f, (v / (float)texHeight) + 0.000f);
 					uv2 = glm::vec2(((u + TEXTURE_DIM) / (float)texWidth) - 0.000f, (v / (float)texHeight) + 0.000f);
@@ -1562,7 +1581,7 @@ private:
 				}
 
 				//repeat for +x face
-				if ((x == CHUNK_SIZE-1 && !chunks.contains(std::array<int, 3>{coords[0] + 1, coords[1], coords[2]})) || (x == CHUNK_SIZE - 1 && chunks[std::array<int, 3>{coords[0] + 1, coords[1], coords[2]}][voxelCoordToI(0, y, z)].isActive == false) || (x != CHUNK_SIZE-1 && chunks[coords][voxelCoordToI(x + 1, y, z)].isActive == false)) {
+				if (x == CHUNK_SIZE-1 && !chunkXP || x == CHUNK_SIZE - 1 && chunkXP[voxelCoordToI(0, y, z)].isActive == false || x != CHUNK_SIZE-1 && chunk[voxelCoordToI(x + 1, y, z)].isActive == false) {
 					vertices.push_back({ {x + 1.0f, y, z + 1.0f},            {1.0f, 0.0f, 1.0f}, {uv1} });
 					vertices.push_back({ {x + 1.0f, y, z},                   {1.0f, 0.0f, 0.0f}, {uv2} });
 					vertices.push_back({ {x + 1.0f, y + 1.0f, z + 1.0f},     {1.0f, 1.0f, 1.0f}, {uv3} });
@@ -1573,7 +1592,7 @@ private:
 				}
 
 				//repeat for -x face
-				if ((x == 0 && !chunks.contains(std::array<int, 3>{coords[0] - 1, coords[1], coords[2]})) || (x == 0 && !chunks[std::array<int, 3>{coords[0] - 1, coords[1], coords[2]}][voxelCoordToI(CHUNK_SIZE-1, y, z)].isActive) || (x != 0 && chunks[coords][voxelCoordToI(x - 1, y, z)].isActive == false)) {
+				if (x == 0 && !chunkXN || x == 0 && !chunkXN[voxelCoordToI(CHUNK_SIZE-1, y, z)].isActive || x != 0 && chunk[voxelCoordToI(x - 1, y, z)].isActive == false) {
 					vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {uv1} });
 					vertices.push_back({ {x, y, z + 1.0f},            {0.0f, 0.0f, 1.0f}, {uv2} });
 					vertices.push_back({ {x, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {uv3} });
@@ -1584,7 +1603,7 @@ private:
 				}
 
 				//repeat for +z face
-				if (z == CHUNK_SIZE - 1 && !chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] + 1}) || z == CHUNK_SIZE - 1 && !chunks[std::array<int, 3>{coords[0], coords[1], coords[2] + 1}][voxelCoordToI(x, y, 0)].isActive || z != CHUNK_SIZE - 1 && chunks[coords][voxelCoordToI(x, y, z + 1)].isActive == false) {
+				if (z == CHUNK_SIZE - 1 && !chunkZP || z == CHUNK_SIZE - 1 && !chunkZP[voxelCoordToI(x, y, 0)].isActive || z != CHUNK_SIZE - 1 && chunk[voxelCoordToI(x, y, z + 1)].isActive == false) {
 					vertices.push_back({{x, y + 1.0f, z + 1.0f},            {0.0f, 1.0f, 1.0f}, {uv4} });
 					vertices.push_back({{x, y, z + 1.0f},                   {0.0f, 0.0f, 1.0f}, {uv2} });
 					vertices.push_back({{x + 1.0f, y + 1.0f, z + 1.0f},     {1.0f, 1.0f, 1.0f}, {uv3} });
@@ -1595,7 +1614,7 @@ private:
 				}
 
 				//repeat for -z face
-				if (z == 0 && !chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] - 1}) || z == 0 && chunks[std::array<int, 3>{coords[0], coords[1], coords[2] - 1}][voxelCoordToI(x, y, CHUNK_SIZE-1)].isActive == false || z != 0 && chunks[coords][voxelCoordToI(x, y, z - 1)].isActive == false) {
+				if (z == 0 && !chunkZN || z == 0 && chunkZN[voxelCoordToI(x, y, CHUNK_SIZE-1)].isActive == false || z != 0 && chunk[voxelCoordToI(x, y, z - 1)].isActive == false) {
 					vertices.push_back({ {x, y, z},                   {0.0f, 0.0f, 0.0f}, {uv1} });
 					vertices.push_back({ {x, y + 1.0f, z},            {0.0f, 1.0f, 0.0f}, {uv3} });
 					vertices.push_back({ {x + 1.0f, y, z},            {1.0f, 0.0f, 0.0f}, {uv2} });
@@ -1605,9 +1624,9 @@ private:
 					idx += 4;
 				}
 
-				if (block3faced.contains(chunks[coords][i].blockId)) {
-					u = ((chunks[coords][i].blockId + 2) % (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) % (TEXTURE_DIM + 2*TEXTURE_PADDING)) * 32;
-					v = ((chunks[coords][i].blockId + 2) / (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) / 32) * 32;
+				if (block3faced.contains(chunk[i].blockId)) {
+					u = ((chunk[i].blockId + 2) % (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) % (TEXTURE_DIM + 2*TEXTURE_PADDING)) * 32;
+					v = ((chunk[i].blockId + 2) / (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) / 32) * 32;
 
 					uv1 = glm::vec2((u / (float)texWidth) + 0.000f, (v / (float)texHeight) + 0.000f);
 					uv2 = glm::vec2(((u + TEXTURE_DIM) / (float)texWidth) - 0.000f, (v / (float)texHeight) + 0.000f);
@@ -1616,7 +1635,7 @@ private:
 				}
 
 				//repeat for -y face
-				if ((y == CHUNK_SIZE - 1 && !chunks.contains(std::array<int, 3>{coords[0], coords[1] + 1, coords[2]})) || (y == CHUNK_SIZE - 1 && chunks[std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}][voxelCoordToI(x, 0, z)].isActive == false) || (y != CHUNK_SIZE - 1 && chunks[coords][voxelCoordToI(x, y + 1, z)].isActive == false)) {
+				if (y == CHUNK_SIZE - 1 && !chunkYN || y == CHUNK_SIZE - 1 && chunkYN[voxelCoordToI(x, 0, z)].isActive == false || y != CHUNK_SIZE - 1 && chunk[voxelCoordToI(x, y + 1, z)].isActive == false) {
 					vertices.push_back({ {x, y + 1.0f, z},                   {0.0f, 1.0f, 0.0f}, {uv1} });
 					vertices.push_back({ {x + 1.0f, y + 1.0f, z + 1.0f},     {1.0f, 1.0f, 1.0f}, {uv2} });
 					vertices.push_back({ {x + 1.0f, y + 1.0f, z},            {1.0f, 1.0f, 0.0f}, {uv3} });
@@ -1627,6 +1646,12 @@ private:
 				}
 			}
 		}
+
+		auto end_time = std::chrono::high_resolution_clock::now();
+
+		auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time).count();
+
+		std::cout << "Time taken: " << duration << " microseconds" << std::endl;
 	}
 
 	size_t voxelCoordToI(int x, int y, int z) {
@@ -2263,38 +2288,25 @@ private:
 		//init World geometry, set initial camera pos, set inital loaded chunks
 		//Consider creating a helper function for writing to chunks (takes a function input perhaps)
 
-		//write and load to 0,0,0
-		chunks[std::array<int, 3>{0, 0, 0}] = new Voxel[CHUNK_VOL];
+		//write and load to 0,-1,0
+		chunks[std::array<int, 3>{0, -1, 0}] = new Voxel[CHUNK_VOL];
 		for (size_t i = 0; i < CHUNK_VOL; i++) {
 			int x = i / (CHUNK_SIZE * CHUNK_SIZE);
 			int y = (i / CHUNK_SIZE) % CHUNK_SIZE;
 			int z = i % CHUNK_SIZE;
-			if (y < 12) {
-				chunks[std::array<int, 3>{0, 0, 0}][i] = Voxel(true, 3);
-			}
-			else {
-				chunks[std::array<int, 3>{0, 0, 0}][i] = Voxel(true, 4);
+			if ((x - CHUNK_SIZE/2)*(x-CHUNK_SIZE/2) + (y - CHUNK_SIZE / 2) * (y - CHUNK_SIZE / 2) + (z - CHUNK_SIZE / 2) * (z - CHUNK_SIZE / 2) <= (CHUNK_SIZE/2)*(CHUNK_SIZE/2)) {
+				chunks[std::array<int, 3>{0, -1, 0}][i] = Voxel(true, 5);
 			}
 		}
-		chunks[std::array<int, 3>{0, 0, 0}][0] = Voxel(false, 0);
-		loadedChunks[std::array<int, 3>{0, 0, 0}] = {};
+		loadedChunks[std::array<int, 3>{0, -1, 0}] = {};
 
-		//write and load to 0, 0, 1
-		chunks[std::array<int, 3>{0, 0, 1}] = new Voxel[CHUNK_VOL];
-		for (size_t i = 0; i < CHUNK_VOL; i++) {
-			chunks[std::array<int, 3>{0, 0, 1}][i] = Voxel(true, 4);
+
+		for (int i = -2; i < 3; i++) {
+			for (int j = -2; j < 3; j++) {
+				generateChunk(std::array<int, 3>{i, 0, j});
+				loadedChunks[std::array<int, 3>{i, 0, j}] = {};
+			}
 		}
-		loadedChunks[std::array<int, 3>{0, 0, 1}] = {};
-
-		//write and load to -1,0,-1
-		generateChunk(std::array<int, 3>{-1, 0, 0});
-		loadedChunks[std::array<int, 3>{-1, 0, 0}] = {};
-		generateChunk(std::array<int, 3>{-2, 0, 0});
-		loadedChunks[std::array<int, 3>{-2, 0, 0}] = {};
-		generateChunk(std::array<int, 3>{1, 0, 0});
-		loadedChunks[std::array<int, 3>{1, 0, 0}] = {};
-		generateChunk(std::array<int, 3>{-1, 0, 1});
-		loadedChunks[std::array<int, 3>{-1, 0, 1}] = {};
 
 		velocity = glm::vec3(0.0f, 0.0f, 0.0f);
 		position = glm::vec3(4.0f, -2.0f, 4.0f);
