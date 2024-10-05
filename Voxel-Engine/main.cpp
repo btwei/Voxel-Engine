@@ -1262,7 +1262,7 @@ private:
 				image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				1, &blit,
-				VK_FILTER_LINEAR);
+				VK_FILTER_NEAREST);
 
 			barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 			barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1446,15 +1446,15 @@ private:
 		VkPhysicalDeviceProperties properties{};
 		vkGetPhysicalDeviceProperties(physicalDevice, &properties);
 
-		samplerInfo.maxAnisotropy = properties.limits.maxSamplerAnisotropy;
+		samplerInfo.maxAnisotropy = 2.0f;//properties.limits.maxSamplerAnisotropy;
 		samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
 		samplerInfo.unnormalizedCoordinates = VK_FALSE;
 		samplerInfo.compareEnable = VK_FALSE;
 		samplerInfo.compareOp = VK_COMPARE_OP_ALWAYS;
-		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR; // TODO: Enable Mipmapping with texture atlases (or swap to texture arrays)
-		samplerInfo.mipLodBias = -0.5f;
+		samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST; // TODO: Enable Mipmapping with texture atlases (or swap to texture arrays)
+		samplerInfo.mipLodBias = -0.75f;
 		samplerInfo.minLod = 0.0f;
-		samplerInfo.maxLod = 2.0f;//static_cast<float>(mipLevels);
+		samplerInfo.maxLod = 4.0f;//static_cast<float>(mipLevels);
 
 		if (vkCreateSampler(device, &samplerInfo, nullptr, &textureSampler) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create texture sampler!");
@@ -2425,7 +2425,7 @@ private:
 		//init World geometry, set initial camera pos, set inital loaded chunks
 		//Consider creating a helper function for writing to chunks (takes a function input perhaps)
 
-		//write and load to 0,-1,0
+		//write and load a sphere to 0,-1,0
 		chunks[std::array<int, 3>{0, -1, 0}] = new Voxel[CHUNK_VOL];
 		for (size_t i = 0; i < CHUNK_VOL; i++) {
 			int x = i / (CHUNK_SIZE * CHUNK_SIZE);
@@ -2437,13 +2437,15 @@ private:
 		}
 		loadedChunks[std::array<int, 3>{0, -1, 0}] = {};
 
-
+		//write grass and dirt to a 5x5 ground area
 		for (int i = -2; i < 3; i++) {
 			for (int j = -2; j < 3; j++) {
 				generateChunk(std::array<int, 3>{i, 0, j});
 				loadedChunks[std::array<int, 3>{i, 0, j}] = {};
 			}
 		}
+
+
 
 		velocity = glm::vec3(0.0f, 0.0f, 0.0f);
 		position = glm::vec3(4.0f, -2.0f, 4.0f);

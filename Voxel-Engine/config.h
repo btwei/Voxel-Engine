@@ -20,7 +20,7 @@ const int VIEW_DISTANCE = 3;
 /* TEXTURE ATLAS */
 /* All block textures should be padded by at least 1 px of repeated edge to prevent texture bleeding */
 const int TEXTURE_DIM = 16;
-const int TEXTURE_PADDING = 1;
+const int TEXTURE_PADDING = 8;
 /* If the blocks use a special top-side-bottom face scheme, include the faces in that order in the atlas and include the first block id in this list */
 /* Block ids are 0 indexed! */
 const std::set<int> block3faced = {1};
