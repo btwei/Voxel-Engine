@@ -21,26 +21,26 @@ A voxel engine creates and manages 3D worlds made up of volumetric pixels or vox
 ## Screenshots and Visuals
 ![FirstScreenshot](/screenshots/LoweredAnisotropicFiltering.png)
 
-### Technical Highlights
-## Low-Level Memory Management
+## Technical Highlights
+### Low-Level Memory Management
 - **Custom memory allocation:** Leveraged C++'s low-level memory control to optimize memory usage. Large voxel data is stored on the heap and passed as references or pointers to avoid blowing up the stack.
 - **Chunk streaming:** Implemented efficient chunk loading and unloading, minimizing memory overhead while maintaining smooth gameplay performance in realtime. Chunks are moved onto device local memory for higher performance.
 
-## Multi-Threaded Architecture
+### Multi-Threaded Architecture
 - **Decoupled update and rendering threads:** Ths engine uses separate threads for updating world logic and rendering, ensuring consistent frame rates and responsiveness even under heavy load.
 - **Thread synchronization:** Implemented thread-safe data handling using mutexes and condition variables to ensure efficient and correct resource access across threads without performance degradation.
 
-## GPU-Accelerated Rendering (Vulkan)
+### GPU-Accelerated Rendering (Vulkan)
 - **Vulkan integration:** Full integration with Vulkan, which gives explicit control over the GPU pipeline for rendering, memory management, and synchronization.
 - **MSAA (Multisample Anti-Aliasing):** Integrated MSAA for reducing jagged edges on voxel surfaces. This improves the overall visual quality without significantly affecting rendering performant, thanks to Vulkan's efficient multi-sampling capabilities.
 - **Mipmapping for textures:** Implemented mipmapping to optimize the display of textures on distant voxels. This not only improves the visual quality by reducing aliasing in textures but also reduces memory bandwidth usage, as smaller texture versions are used for far-off chunks.
 - **Custom shaders:** Created custom GLSL shaders, which leverage push constants, universal buffer objects, and texture atlasing to properly render chunks.
 
-## Custom Camera Controls
+### Custom Camera Controls
 - **Input handling:** Captured and processed mouse and keyboard inputs directly, allowing for smooth and intuitive camera controls without relying on extenal libraries.
 - **Matrix transformations:** Implemented first-person and free-fly camera controls using matrix transformations calculated from position, yaw, and pitch.  
 
-### Possible Future Plans
+## Possible Future Plans
 - **Lighting:** Lighting could be handled with a rasterization-based deferred rendering system.
 - **Greedy Meshing:** This is an algorithm that reduces triangles by combining faces. However, this method disrupts texture atlasing, so I'd need to add vertex attributes, use texture arrays, or use single colored faces.
 - **Release as an API:** I could write an API to let users hook into the engine and add their own functionality. It is already partially designed as an engine, with customizations living in my config.h file, but I'd need to write documentation and expose some extra functions.
