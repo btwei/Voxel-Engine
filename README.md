@@ -19,7 +19,7 @@ A voxel engine creates and manages 3D worlds made up of volumetric pixels or vox
 - Advanced graphics techniques, including MSAA and mipmapping
 
 ## Screenshots and Visuals
-[!FirstScreenshot](/screenshots/LoweredAnisotropicFiltering.png)
+![FirstScreenshot](/screenshots/LoweredAnisotropicFiltering.png)
 
 ### Technical Highlights
 ## Low-Level Memory Management
