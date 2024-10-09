@@ -21,7 +21,7 @@ A voxel engine creates and manages 3D worlds made up of volumetric pixels or vox
 ## Screenshots and Visuals
 ![FirstScreenshot](/screenshots/FixedVisualArtifacts.png)
 [![Voxel Engine Video Demo](https://img.youtube.com/vi/LqDZhnlaoHk/0.jpg)](https://www.youtube.com/watch?v=LqDZhnlaoHk)
-- Here's a quick demo that shows off some of my engine features! (Sorry I'm not a video editing pro yet, but this should help give you an idea of what I can do with C++ and Vulkan!)
+- Click above for a video! Here's a quick demo that shows off some of my engine features! (and whoops I'm not a video editing pro yet, so the video quality didn't capture my engine in high res, see the screenshot before)
 
 ## Technical Highlights
 ### Low-Level Memory Management
