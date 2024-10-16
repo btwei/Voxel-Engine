@@ -1,5 +1,5 @@
 # Voxel-Engine
-Voxel Engine: High-Performance Voxel-Based 3D Engine in C++
+Voxel Engine: Vulkan-Based 3D Engine in C++
 
 This voxel engine, written in C++ with Vulkan, is designed for high performance and scalability, leveraging low-level control over memory, multi-threading, and GPU-accelerated rendering. It supports seamless voxel-based world generation, where chunks and voxels can be placed at arbitrary world coordinates, allowing for infinite worlds.
 
@@ -7,7 +7,7 @@ This voxel engine, written in C++ with Vulkan, is designed for high performance 
 Despite what it looks like, this is not a video game. This is a voxel engine. Most modern day games are built *on top* of engines, leaving the engine to handle low-level graphics, multi-threading, physics stepping, and much more. The focus of my engine is not on gameplay, but to implement these systems myself with a focus on handling and displaying large, block based worlds efficiently. This type of engine can be used in areas like simulations, 3D data visualization, or procedural content creation.
 
 ## What is a Voxel Engine; Why is this difficult?
-A voxel engine creates and manages 3D worlds made up of volumetric pixels or voxels. This sounds simple, but the primary challenge lies in handling large amounts of data efficiently, especially when dealing with large or complex scenes. Unlike traditional 3D models, which use surfaces and polygons, a voxel engine stores information for every block in a grid, which can quickly become thousands or millions of data entries. The primary goals of my engine are to tackle this problem, while allowing voxels to be dyanamic, be unbounded in position, and performant in a realtime application. Again, this project was developed from near-scratch in c++, using only minimal libraries to accomplish this goal.
+A voxel engine creates and manages 3D worlds made up of volumetric pixels or voxels. This sounds simple, but the primary challenge lies in handling large amounts of data efficiently, especially when dealing with large or complex scenes. Unlike traditional 3D models, which use surfaces and polygons, a voxel engine stores information for every block in a grid, which can quickly become thousands or millions of data entries. The primary goals of my engine are to tackle this problem, while allowing voxels to be dynamic, be unbounded in position, and performant in a realtime application. Again, this project was developed from near-scratch in c++, using only minimal libraries to accomplish this goal.
 
 ## Features
 - Infinite, dynamic voxel world generation

@@ -30,7 +30,7 @@
 #define VMA_IMPLEMENTATION
 #include "vk_mem_alloc.h"
 
-// Config Settings
+/* Config Settings */
 // TODO: move config to a separate config.h file
 #include "config.h"
 
@@ -51,12 +51,14 @@ const auto fixedTimeStep = std::chrono::duration<double>( 1.0f / 60.0f);
 
 bool noClip = false;
 
-// End Config
+/* End Config */
 
+//Define Required Validation Layers
 const std::vector<const char*> validationLayers = {
 	"VK_LAYER_KHRONOS_validation"
 };
 
+//Define Required Device Extensions
 const std::vector<const char*> deviceExtensions = {
 	VK_KHR_SWAPCHAIN_EXTENSION_NAME
 };
@@ -66,6 +68,9 @@ const std::vector<const char*> deviceExtensions = {
 #else
 	const bool enableValidationLayers = true;
 #endif
+
+
+/* Utility Functions and Callbacks */
 
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger) {
 	auto func = (PFN_vkCreateDebugUtilsMessengerEXT)vkGetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT");
@@ -100,6 +105,8 @@ static std::vector<char> readFile(const std::string& filename) {
 
 	return buffer;
 }
+
+/* Structs and Global Variables (for access outside the engine, subject to change) */
 
 struct Vertex {
 	glm::vec3 pos;
@@ -157,9 +164,6 @@ struct Array3Hash {
 	}
 };
 
-//Voxel* is a pointer to std::array<Voxel, CHUNK_VOL>
-std::unordered_map<std::array<int, 3>, Voxel*, Array3Hash> chunks;
-
 struct ChunkResources {
 	VkBuffer vertexBuffer;
 	VkBuffer indexBuffer;
@@ -167,8 +171,6 @@ struct ChunkResources {
 	VmaAllocation indexAllocation;
 	uint32_t indexCount;
 };
-
-std::unordered_map<std::array<int, 3>, ChunkResources, Array3Hash> loadedChunks;
 
 struct GameState {
 	glm::vec3 playerPos;
@@ -178,8 +180,17 @@ struct GameState {
 	std::vector<std::array<int, 3>> unloadChunks; 
 };
 
+// loadedChunks stores a list of chunks to render as keys, and their corresponding memory handles as values
+std::unordered_map<std::array<int, 3>, ChunkResources, Array3Hash> loadedChunks;
+
 std::unordered_map<int, bool> keyState;
 
+// Voxel* is a pointer to std::array<Voxel, CHUNK_VOL>
+std::unordered_map<std::array<int, 3>, Voxel*, Array3Hash> chunks;
+
+/* End Structs and Global Vars */
+
+/* Voxel Engine class */
 class VoxelEngine{
 public:
 	void run(){
@@ -191,6 +202,8 @@ public:
 	}
 
 private:
+
+	/* Private Variables - Vulkan Handles and Configuration */
 	GLFWwindow* window;
 	VkInstance instance;
 	VkDebugUtilsMessengerEXT debugMessenger;
@@ -239,7 +252,7 @@ private:
 	uint32_t currentFrame = 0;
 	bool firstUpdate = true;
 
-	//Shared Resources (between threads)
+	/* Private Variables - Game State */
 	std::atomic<bool> framebufferResized = false;
 	GameState state0, state1;
 	std::mutex stateMutex0, stateMutex1;
@@ -259,6 +272,7 @@ private:
 	std::vector<std::array<int, 3>> updateLoadChunkList;
 	std::vector<std::array<int, 3>> updateUnloadChunkList;
 
+	// Initialize Window and GLFW callbacks
 	void initWindow() {
 		glfwInit();
 
@@ -272,19 +286,24 @@ private:
 		glfwSetCursorPosCallback(window, cursorPosCallback);
 	}
 
+	// GLFW Callback - framebufferResize
 	static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
 		auto app = reinterpret_cast<VoxelEngine*>(glfwGetWindowUserPointer(window));
 		app->framebufferResized = true;
 	}
 
+	// GLFW Callback - keyCallback
+	// Currently unused; I use glfwGetKey in the game update function instead
 	static void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
 
 	}
 
+	// GLFW Callback - cursorPosCallback
+	// This function updates the player yaw, pitch, forward, and right vectors
 	bool first = true;
 
 	static void cursorPosCallback(GLFWwindow* window, double xpos, double ypos) {
-		//Update playerYaw and playerPitch in the game state corresponding to the update
+
 		auto app = reinterpret_cast<VoxelEngine*>(glfwGetWindowUserPointer(window));
 		if (app->first == true) {
 			app->lastX = xpos;
@@ -319,6 +338,7 @@ private:
 		app->right = glm::normalize(glm::cross(app->forward, glm::vec3(0.0f, -1.0f, 0.0f)));
 	}
 
+	// Vulkan Setup - largely boilerplate code (I'll try to mention specific changes for my engine)
 	void initVulkan(){
 		createInstance();
 		setupDebugMessenger();
@@ -1461,6 +1481,8 @@ private:
 		}
 	}
 
+	/* Create Initial Vertex and Index Buffers for first time loading */
+	/* This is based on initial loadedChunks and saves their corresponding chunkResources (buffers and allocations) */
 	void createVertexAndIndexBuffers() {
 		//Initialize VMA
 
@@ -1553,6 +1575,7 @@ private:
 		}
 	}
 
+	/* Dynamically loadChunks from chunkCoords into loadedChunks */
 	void loadChunks(std::vector<std::array<int, 3>> chunkCoords){
 		for(const std::array<int,3>& coord : chunkCoords) {
 			if(!loadedChunks.contains(coord)){
@@ -1638,6 +1661,8 @@ private:
 		}
 	}
 
+	/* Dynamically unload chunks from loadedChunks list by chunkCoords */
+	/* Should only run when device is idle to not deallocate buffers during drawing */
 	void unloadChunks(std::vector<std::array<int, 3>> chunkCoords) {
 		vkQueueWaitIdle(graphicsQueue);
 		for(const std::array<int,3>& coord : chunkCoords){
@@ -1657,8 +1682,10 @@ private:
 		std::vector<uint16_t> indices;
 	};
 
+	// Possible future addon: chunkCaching; store the mesh data by chunkCoord of nearby unloaded chunks for fast loading
 	//std::unordered_map< , mesh> chunkCache;
 
+	/* Given a chunk coord, constructs the proper vertex and index arrays and writes them to the vertice and indices parameters */
 	void constructChunk(std::array<int, 3> coords, std::vector<Vertex>& vertices, std::vector<uint16_t>& indices) {
 
 		//First query our chunks to see if it exists
@@ -1666,8 +1693,10 @@ private:
 			return;
 		}
 
-		uint16_t idx = 0; //Index for new vertices
+		//Vertex index for this chunk's mesh
+		uint16_t idx = 0;
 		
+		//Pre-computing these values speeds up chunk generation significantly (from around 100ms to 10ms)
 		Voxel* chunk = chunks[coords];
 		Voxel* chunkYP = chunks.contains(std::array<int, 3>{coords[0], coords[1] - 1, coords[2]}) ? chunks[std::array<int, 3>{coords[0], coords[1] - 1, coords[2]}] : nullptr;
 		Voxel* chunkXP = chunks.contains(std::array<int, 3>{coords[0] + 1, coords[1], coords[2]}) ? chunks[std::array<int, 3>{coords[0] + 1, coords[1], coords[2]}] : nullptr;
@@ -1676,7 +1705,7 @@ private:
 		Voxel* chunkZN = chunks.contains(std::array<int, 3>{coords[0], coords[1], coords[2] - 1}) ? chunks[std::array<int, 3>{coords[0], coords[1], coords[2] - 1}] : nullptr;
 		Voxel* chunkYN = chunks.contains(std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}) ? chunks[std::array<int, 3>{coords[0], coords[1] + 1, coords[2]}] : nullptr;
 		
-		//Possibly in the future I could unify my faces, which reduces the vertex count, but this is not usually possible if the block types are different, so additional logic would be necessary
+		//Possibly in the future I could use greedy meshing, but there are some issues with that, which I'd need to account for
 		//std::unordered_map<std::array<int, 3>, uint16_t, Array3Hash> vert_idx_map;
 
 		for (size_t i = 0; i < CHUNK_VOL; i++) {
@@ -1762,6 +1791,7 @@ private:
 					idx += 4;
 				}
 
+				// Change index to bottom texture from the texture atlas for 3faced blocks (like dirt)
 				if (block3faced.contains(chunk[i].blockId)) {
 					u = ((chunk[i].blockId + 2) % (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) % (TEXTURE_DIM + 2*TEXTURE_PADDING)) * 32;
 					v = ((chunk[i].blockId + 2) / (int)floor((float)texWidth / ((float)TEXTURE_DIM + 2.0f * (float)TEXTURE_PADDING))) * (TEXTURE_DIM + 2 * TEXTURE_PADDING) + TEXTURE_PADDING;//(static_cast<int>(chunks[coords][i].blockId) / 32) * 32;
@@ -1786,6 +1816,7 @@ private:
 		}
 	}
 
+	/* Helper function to convert from coord to index */
 	size_t voxelCoordToI(int x, int y, int z) {
 		return (x * CHUNK_SIZE * CHUNK_SIZE) + (y * CHUNK_SIZE) + z;
 	}
@@ -1996,7 +2027,6 @@ private:
 
 		updateThread();
 
-		//While not a strictly necessary check, I'll add it for possible extension in the future
 		if (rt.joinable()) {
 			rt.join();
 		}
@@ -2142,7 +2172,10 @@ private:
 		bool isActive;
 	};
 
+	/* TODO: Fully implement a collision system */
+	/* I drafted out collisions, but I'd rather add features like lighting before then */
 	void movePlayerAndCollide() {
+		
 		position.x += static_cast<float>(fixedTimeStep.count()) * velocity.x;
 		std::vector<WorldVoxel> voxelOverlap = fetchVoxelsAtPlayer();
 
@@ -2186,8 +2219,10 @@ private:
 			}
 		}
 		if (collide == true) velocity.y = 0;
+		
 	}
 
+	/* Helper function - get chunkCoord at player position */
 	std::vector<WorldVoxel> fetchVoxelsAtPlayer () {
 		std::vector<WorldVoxel> voxelList;
 		glm::vec3 pos = position - glm::vec3(0.5, 0, 0.5);
@@ -2203,6 +2238,7 @@ private:
 		return voxelList;
 	}
 
+	/* Helper function - convert from world position (as a vec3 float) to a chunkCoord and voxel index pair */
 	WorldVoxel worldPosToWorldVoxel (glm::vec3 pos) {
 		if(chunks.contains(std::array<int, 3>{static_cast<int>(floor(pos.x / CHUNK_SIZE)), static_cast<int>(floor(pos.y / CHUNK_SIZE)), static_cast<int>(floor(pos.z / CHUNK_SIZE))})){
 			if(chunks[std::array<int, 3>{static_cast<int>(floor(pos.x / CHUNK_SIZE)), static_cast<int>(floor(pos.y / CHUNK_SIZE)), static_cast<int>(floor(pos.z / CHUNK_SIZE))}][voxelCoordToI(int(floor(pos.x)) % CHUNK_SIZE, int(floor(pos.y)) % CHUNK_SIZE, int(floor(pos.z)) % CHUNK_SIZE)].isActive == true) {
@@ -2212,6 +2248,8 @@ private:
 		return WorldVoxel{std::array<int,3>{-99, -99, -99}, 0, false};
 	}
 
+	/* Helper function - convert from a chunkCoord and voxel pair to a vec3 float position. */
+	/* Voxels grow from 0,0,0 to +x,+y,+z, and my coordinate system is y+ is down */
 	glm::vec3 worldVoxelToWorldPos (WorldVoxel wv) {
 		int x = wv.voxelI / (CHUNK_SIZE * CHUNK_SIZE);
 		int y = (wv.voxelI / CHUNK_SIZE) % CHUNK_SIZE;
