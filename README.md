@@ -20,8 +20,8 @@ A voxel engine creates and manages 3D worlds made up of volumetric pixels or vox
 
 ## Screenshots and Visuals
 ![FirstScreenshot](/screenshots/FixedVisualArtifacts.png)
-[![Voxel Engine Video Demo](https://img.youtube.com/vi/oZgJ56Z6Rss/0.jpg)](https://www.youtube.com/watch?v=oZgJ56Z6Rss)
-- Click the above image above for a video! It's a quick demo that shows off some engine features!
+
+[Click here for a video demo](https://www.youtube.com/watch?v=oZgJ56Z6Rss)
 
 ## Technical Highlights
 ### Low-Level Memory Management
@@ -48,4 +48,6 @@ A voxel engine creates and manages 3D worlds made up of volumetric pixels or vox
 - **Release as an API:** I could write an API to let users hook into the engine and add their own functionality. It is already partially designed as an engine, with customizations living in my config.h file, but I'd need to write documentation and expose some extra functions.
 
 ## Acknowledgements
-- My current test textures are a modified version of the **Good Vibes** texture pack by **Acaitart**
+- Test textures are a modified version of the **Good Vibes** texture pack by **Acaitart**
+- Uses the Vulkan Memory Allocator library to reduce the number of vkMemoryDevice creations
+- Followed Vulkan Tutorial https://vulkan-tutorial.com/ for help getting through boiler-plate Vulkan code
